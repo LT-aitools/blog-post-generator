@@ -8,15 +8,7 @@ from pathlib import Path
 current_dir = Path(__file__).resolve().parent
 sys.path.insert(0, str(current_dir))
 
-# Add this near the top of app.py
-try:
-    # Check if video utilities are accessible
-    import sys
-    from src.videoclipper import extract_video_clip
-    from src.screenshot_extractor import extract_screenshots_at_times
-    st.sidebar.success("✅ Video utilities successfully imported")
-except ImportError as e:
-    st.sidebar.error(f"❌ Failed to import video utilities: {str(e)}")
+
 
 # Import the BlogProcessor
 try:
@@ -34,6 +26,15 @@ try:
     video_utils_available = True
 except ImportError:
     video_utils_available = False
+# Add this near the top of app.py
+try:
+    # Check if video utilities are accessible
+    import sys
+    from src.videoclipper import extract_video_clip
+    from src.screenshot_extractor import extract_screenshots_at_times
+    st.sidebar.success("✅ Video utilities successfully imported")
+except ImportError as e:
+    st.sidebar.error(f"❌ Failed to import video utilities: {str(e)}")
 
 # Set page title and favicon
 st.set_page_config(
