@@ -4,11 +4,16 @@ import sys
 import tempfile
 from pathlib import Path
 
+# Set page title and favicon - THIS MUST BE THE FIRST STREAMLIT COMMAND
+st.set_page_config(
+    page_title="Blog Content Creator",
+    page_icon="📝",
+    layout="wide"
+)
+
 # Add the project root directory to Python path (same as in your examples)
 current_dir = Path(__file__).resolve().parent
 sys.path.insert(0, str(current_dir))
-
-
 
 # Import the BlogProcessor
 try:
@@ -26,22 +31,6 @@ try:
     video_utils_available = True
 except ImportError:
     video_utils_available = False
-# Add this near the top of app.py
-try:
-    # Check if video utilities are accessible
-    import sys
-    from src.videoclipper import extract_video_clip
-    from src.screenshot_extractor import extract_screenshots_at_times
-    st.sidebar.success("✅ Video utilities successfully imported")
-except ImportError as e:
-    st.sidebar.error(f"❌ Failed to import video utilities: {str(e)}")
-
-# Set page title and favicon
-st.set_page_config(
-    page_title="Blog Content Creator",
-    page_icon="📝",
-    layout="wide"
-)
 
 # Custom CSS styling
 st.markdown("""
@@ -69,6 +58,15 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+# Now check if video utilities are accessible
+try:
+    from src.videoclipper import extract_video_clip
+    from src.screenshot_extractor import extract_screenshots_at_times
+
+    st.sidebar.success("✅ Video utilities successfully imported")
+except ImportError as e:
+    st.sidebar.error(f"❌ Failed to import video utilities: {str(e)}")
 
 # Display debug info in sidebar
 debug_expander = st.sidebar.expander("Debug Info")
@@ -190,6 +188,11 @@ elif app_mode == "Blog Processor" and blog_processor_available:
                     # Initialize processor with the output directory
                     # This matches exactly how you use it in blog_processor_example.py
                     processor = BlogProcessor(output_base_dir=output_folder)
+
+                    # Extra debug info during processing
+                    st.info("Starting blog processing...")
+                    st.text(f"Document path: {temp_doc}")
+                    st.text(f"Video path: {temp_video}")
 
                     # Process the blog
                     result = processor.process_blog(str(temp_doc), str(temp_video))
@@ -384,7 +387,7 @@ elif app_mode == "Blog Processor" and not blog_processor_available:
     3. Check that all required dependencies are installed
     """)
 
-    if import_error:
+    if 'import_error' in locals():
         st.code(f"Import error: {import_error}")
 
 elif (app_mode == "Video Screenshot Tool" or app_mode == "Video Clipper") and not video_utils_available:
