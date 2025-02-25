@@ -1,14 +1,21 @@
 import os
+import sys
 import logging
 from typing import List, Dict
 from pathlib import Path
 from datetime import datetime, timedelta
 
-# Import video utilities
-from ..videoclipper import extract_video_clip
-from ..screenshot_extractor import extract_screenshots_at_times
-from .docx_reader import MediaMarker
+# Adjust imports for Streamlit Cloud compatibility
+try:
+    # Try relative import first (how it works locally)
+    from ..videoclipper import extract_video_clip
+    from ..screenshot_extractor import extract_screenshots_at_times
+except ImportError:
+    # Alternative import for Streamlit Cloud
+    from src.videoclipper import extract_video_clip
+    from src.screenshot_extractor import extract_screenshots_at_times
 
+from .docx_reader import MediaMarker
 
 class MediaExtractor:
     """Handles extraction and organization of media files from video."""
