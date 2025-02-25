@@ -16,3 +16,5 @@ pytest>=7.4.0
 # Optional but recommended
 numpy>=1.22.0  # Required by OpenCV
 Pillow>=9.0.0  # For image processing
+opencv-python-headless>=4.8.0
+# (instead of opencv-python)
