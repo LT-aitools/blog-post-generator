@@ -1,5 +1,6 @@
 import os
 from typing import List
+from datetime import timedelta
 from .docx_reader import MediaMarker
 
 
@@ -9,6 +10,8 @@ class HTMLGenerator:
     def __init__(self, media_folder: str):
         """Initialize the HTML generator."""
         self.media_folder = media_folder
+        # Get just the folder name, not the full path
+        self.media_folder_name = os.path.basename(media_folder)
 
     def _create_video_element(self, marker: MediaMarker, video_path: str) -> str:
         """Create HTML for a video element."""
@@ -41,12 +44,17 @@ class HTMLGenerator:
         # Process each marker, replacing them with appropriate HTML
         for i, marker in enumerate(markers):
             if marker.type == 'CLIP':
-                filename = f"clip_{i + 1:03d}.mp4"
-                video_path = os.path.join(self.media_folder, filename)
+                # For video clips
+                time_str = str(timedelta(seconds=int(marker.timestamp))).replace(':', '-')
+                duration_str = str(timedelta(seconds=int(marker.duration))).replace(':', '-')
+                video_filename = f"{os.path.basename(self.media_folder)}_clip_from_{time_str}_duration_{duration_str}.mp4"
+                video_path = os.path.join(self.media_folder_name, video_filename)
                 html_element = self._create_video_element(marker, video_path)
             else:  # SCREENSHOT
-                filename = f"screenshot_{i + 1:03d}.jpg"
-                image_path = os.path.join(self.media_folder, filename)
+                # For screenshots - match the naming pattern in media_extractor.py
+                time_str = str(timedelta(seconds=int(marker.timestamp))).replace(':', '-')
+                screenshot_filename = f"{os.path.basename(self.media_folder)}_screenshot_{i + 1:03d}_at_{time_str}.jpg"
+                image_path = os.path.join(self.media_folder_name, screenshot_filename)
                 html_element = self._create_image_element(marker, image_path)
 
             # Replace the marker with HTML
