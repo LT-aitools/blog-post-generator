@@ -1,8 +1,6 @@
 import sys
 import os
-import webbrowser
 from pathlib import Path
-from datetime import datetime
 
 # Add project root to path
 current_dir = Path(__file__).resolve().parent
@@ -11,127 +9,129 @@ sys.path.insert(0, str(project_root))
 
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QPushButton, QLabel,
                              QVBoxLayout, QHBoxLayout, QWidget, QFileDialog,
-                             QTextEdit, QProgressBar, QTabWidget, QSplitter,
-                             QScrollArea, QGridLayout, QFrame, QToolButton)
-from PyQt6.QtCore import Qt, QUrl
-from PyQt6.QtGui import QPixmap, QDesktopServices
-from PyQt6.QtWebEngineWidgets import QWebEngineView  # Make sure to install PyQt6-WebEngine
+                             QTextEdit, QProgressBar, QFrame, QScrollArea)
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QFont, QColor, QPalette, QIcon
 from src.blog_processor import BlogProcessor
 
 
-class HtmlViewer(QWidget):
-    """Widget for displaying HTML content."""
+class StyledButton(QPushButton):
+    """Custom styled button with modern appearance"""
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.layout = QVBoxLayout(self)
+    def __init__(self, text, primary=False, icon=None):
+        super().__init__(text)
+        self.setMinimumHeight(36)
+        font = self.font()
+        font.setPointSize(10)
+        self.setFont(font)
 
-        # Web view for rendering HTML
-        self.web_view = QWebEngineView()
-        self.layout.addWidget(self.web_view)
+        if primary:
+            self.setStyleSheet("""
+                QPushButton {
+                    background-color: #4a86e8;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 8px 16px;
+                }
+                QPushButton:hover {
+                    background-color: #3a76d8;
+                }
+                QPushButton:pressed {
+                    background-color: #2a66c8;
+                }
+                QPushButton:disabled {
+                    background-color: #cccccc;
+                    color: #888888;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                QPushButton {
+                    background-color: #f0f0f0;
+                    color: #333333;
+                    border: 1px solid #cccccc;
+                    border-radius: 4px;
+                    padding: 8px 16px;
+                }
+                QPushButton:hover {
+                    background-color: #e0e0e0;
+                }
+                QPushButton:pressed {
+                    background-color: #d0d0d0;
+                }
+            """)
 
-        # Button to open in browser
-        open_button = QPushButton("Open in Browser")
-        open_button.clicked.connect(self.open_in_browser)
-        self.layout.addWidget(open_button)
-
-        self.html_path = None
-
-    def set_html(self, html_content, base_url=None):
-        """Set HTML content to display."""
-        self.web_view.setHtml(html_content, base_url)
-
-    def set_html_file(self, html_path):
-        """Load HTML from file."""
-        self.html_path = html_path
-        base_url = QUrl.fromLocalFile(str(Path(html_path).parent))
-
-        try:
-            with open(html_path, 'r', encoding='utf-8') as f:
-                html_content = f.read()
-                self.set_html(html_content, base_url)
-        except Exception as e:
-            print(f"Error loading HTML: {str(e)}")
-
-    def open_in_browser(self):
-        """Open the HTML file in the default web browser."""
-        if self.html_path:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(self.html_path))
+        if icon:
+            self.setIcon(QIcon(icon))
+            self.setIconSize(QSize(18, 18))
 
 
-class MediaGallery(QWidget):
-    """Widget for displaying media files in a grid."""
+class FileSelectionCard(QFrame):
+    """Card for file selection with icon and status"""
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.layout = QVBoxLayout(self)
+    def __init__(self, title, icon_path=None, select_text="Select File"):
+        super().__init__()
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setStyleSheet("""
+            QFrame {
+                background-color: white;
+                border: 1px solid #e0e0e0;
+                border-radius: 6px;
+            }
+        """)
 
-        # Scroll area to contain the grid
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        self.layout.addWidget(self.scroll_area)
+        layout = QVBoxLayout(self)
 
-        # Container widget for the grid
-        self.container = QWidget()
-        self.grid_layout = QGridLayout(self.container)
-        self.scroll_area.setWidget(self.container)
+        # Header with title
+        header_layout = QHBoxLayout()
+        title_label = QLabel(title)
+        title_font = title_label.font()
+        title_font.setPointSize(11)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        layout.addLayout(header_layout)
 
-        # Media file paths
-        self.media_files = []
+        # File status
+        status_layout = QHBoxLayout()
+        self.status_icon = QLabel("📄")  # Using emoji as placeholder
+        status_layout.addWidget(self.status_icon)
 
-    def load_media_directory(self, media_dir):
-        """Load media files from directory."""
-        # Clear existing items
-        for i in reversed(range(self.grid_layout.count())):
-            self.grid_layout.itemAt(i).widget().setParent(None)
+        self.file_label = QLabel("No file selected")
+        self.file_label.setStyleSheet("color: #777777;")
+        status_layout.addWidget(self.file_label, 1)
 
-        # Find image files
-        self.media_files = []
-        for root, dirs, files in os.walk(media_dir):
-            for file in files:
-                if file.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
-                    self.media_files.append(os.path.join(root, file))
+        self.select_button = StyledButton(select_text)
+        status_layout.addWidget(self.select_button)
 
-        # Add media files to grid
-        cols = 3  # Number of columns
-        for i, media_path in enumerate(self.media_files):
-            frame = QFrame()
-            frame.setFrameShape(QFrame.Shape.StyledPanel)
-            frame_layout = QVBoxLayout(frame)
+        layout.addLayout(status_layout)
 
-            # Image
-            pixmap = QPixmap(media_path)
-            if not pixmap.isNull():
-                # Scale pixmap to reasonable size
-                pixmap = pixmap.scaled(300, 200, Qt.AspectRatioMode.KeepAspectRatio)
-                img_label = QLabel()
-                img_label.setPixmap(pixmap)
-                img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                frame_layout.addWidget(img_label)
-
-            # Filename label
-            filename_label = QLabel(os.path.basename(media_path))
-            filename_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            filename_label.setWordWrap(True)
-            frame_layout.addWidget(filename_label)
-
-            # Open button
-            open_button = QPushButton("Open")
-            open_button.clicked.connect(lambda checked, path=media_path:
-                                        QDesktopServices.openUrl(QUrl.fromLocalFile(path)))
-            frame_layout.addWidget(open_button)
-
-            # Add to grid
-            row, col = divmod(i, cols)
-            self.grid_layout.addWidget(frame, row, col)
+    def set_file(self, file_path):
+        if file_path:
+            self.file_label.setText(os.path.basename(file_path))
+            self.file_label.setStyleSheet("color: #333333; font-weight: bold;")
+            self.status_icon = QLabel("✅")  # Change to checkmark
+        else:
+            self.file_label.setText("No file selected")
+            self.file_label.setStyleSheet("color: #777777;")
 
 
 class BlogProcessorUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Blog Media Processor")
-        self.setMinimumWidth(800)
+        self.setMinimumWidth(700)
         self.setMinimumHeight(600)
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #f5f5f5;
+            }
+            QLabel {
+                color: #333333;
+            }
+        """)
 
         # Initialize file paths
         self.doc_path = None
@@ -141,82 +141,103 @@ class BlogProcessorUI(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(16)
+
+        # Create header
+        header = QLabel("Blog Content Processor")
+        header_font = header.font()
+        header_font.setPointSize(16)
+        header_font.setBold(True)
+        header.setFont(header_font)
+        main_layout.addWidget(header)
+
+        # Description
+        description = QLabel("Extract media from blog posts and create HTML pages")
+        description.setStyleSheet("color: #666666;")
+        main_layout.addWidget(description)
+
+        # Separator
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setStyleSheet("background-color: #e0e0e0;")
+        main_layout.addWidget(separator)
 
         # Create file selection area
-        self._create_file_selection(main_layout)
+        main_layout.addWidget(QLabel("1. Select your files"))
+        file_selection_layout = QVBoxLayout()
+        file_selection_layout.setSpacing(12)
 
-        # Create splitter for log and preview areas
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        main_layout.addWidget(splitter, 1)
+        # Document selection card
+        self.doc_card = FileSelectionCard("Blog Document (DOCX)", select_text="Select Document")
+        self.doc_card.select_button.clicked.connect(self._select_document)
+        file_selection_layout.addWidget(self.doc_card)
 
-        # Add log area to top of splitter
-        log_widget = QWidget()
-        log_layout = QVBoxLayout(log_widget)
-        self._create_log_area(log_layout)
-        splitter.addWidget(log_widget)
+        # Video selection card
+        self.video_card = FileSelectionCard("Video File", select_text="Select Video")
+        self.video_card.select_button.clicked.connect(self._select_video)
+        file_selection_layout.addWidget(self.video_card)
 
-        # Add tab widget for previews to bottom of splitter
-        self.preview_tabs = QTabWidget()
-        splitter.addWidget(self.preview_tabs)
+        main_layout.addLayout(file_selection_layout)
 
-        # Add HTML viewer tab
-        self.html_viewer = HtmlViewer()
-        self.preview_tabs.addTab(self.html_viewer, "HTML Preview")
+        # Add processing section
+        main_layout.addWidget(QLabel("2. Process your blog"))
 
-        # Add media gallery tab
-        self.media_gallery = MediaGallery()
-        self.preview_tabs.addTab(self.media_gallery, "Media Files")
+        # Process button
+        self.process_button = StyledButton("Process Blog", primary=True)
+        self.process_button.setEnabled(False)
+        self.process_button.clicked.connect(self._process_blog)
+        main_layout.addWidget(self.process_button)
 
-        # Create process button
-        self._create_process_button(main_layout)
+        # Progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #e0e0e0;
+                border-radius: 4px;
+                background-color: #f0f0f0;
+                text-align: center;
+                height: 22px;
+            }
+            QProgressBar::chunk {
+                background-color: #4a86e8;
+                border-radius: 3px;
+            }
+        """)
+        main_layout.addWidget(self.progress_bar)
+
+        # Create log output area with scroll
+        main_layout.addWidget(QLabel("3. Results"))
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        log_container = QWidget()
+        log_layout = QVBoxLayout(log_container)
+        log_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.log_output = QTextEdit()
+        self.log_output.setReadOnly(True)
+        self.log_output.setMinimumHeight(180)
+        self.log_output.setStyleSheet("""
+            QTextEdit {
+                background-color: white;
+                border: 1px solid #e0e0e0;
+                border-radius: 6px;
+                padding: 8px;
+                font-family: monospace;
+            }
+        """)
+        log_layout.addWidget(self.log_output)
+
+        scroll.setWidget(log_container)
+        main_layout.addWidget(scroll)
 
         # Show initial instructions
         self.log_output.append("Welcome to Blog Media Processor!")
         self.log_output.append("Please select your Word document and video file to begin.")
-
-        # Set initial splitter sizes (1/3 for log, 2/3 for preview)
-        splitter.setSizes([200, 400])
-
-    def _create_file_selection(self, parent_layout):
-        """Create the file selection buttons and labels."""
-        # Document selection
-        doc_layout = QHBoxLayout()
-        self.doc_label = QLabel("No document selected")
-        doc_button = QPushButton("Select Document")
-        doc_button.clicked.connect(self._select_document)
-        doc_layout.addWidget(self.doc_label)
-        doc_layout.addWidget(doc_button)
-        parent_layout.addLayout(doc_layout)
-
-        # Video selection
-        video_layout = QHBoxLayout()
-        self.video_label = QLabel("No video selected")
-        video_button = QPushButton("Select Video")
-        video_button.clicked.connect(self._select_video)
-        video_layout.addWidget(self.video_label)
-        video_layout.addWidget(video_button)
-        parent_layout.addLayout(video_layout)
-
-    def _create_log_area(self, parent_layout):
-        """Create the log output area."""
-        self.log_output = QTextEdit()
-        self.log_output.setReadOnly(True)
-        self.log_output.setMinimumHeight(100)
-        parent_layout.addWidget(self.log_output)
-
-        # Add progress bar
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        parent_layout.addWidget(self.progress_bar)
-
-    def _create_process_button(self, parent_layout):
-        """Create the process button."""
-        self.process_button = QPushButton("Process Blog")
-        self.process_button.setEnabled(False)
-        self.process_button.clicked.connect(self._process_blog)
-        self.process_button.setMinimumHeight(40)  # Make button larger
-        self.process_button.setStyleSheet("font-weight: bold;")
-        parent_layout.addWidget(self.process_button)
 
     def _select_document(self):
         """Handle document selection."""
@@ -229,7 +250,7 @@ class BlogProcessorUI(QMainWindow):
 
         if file_path:
             self.doc_path = file_path
-            self.doc_label.setText(os.path.basename(file_path))
+            self.doc_card.set_file(file_path)
             self._check_ready()
             self.log_output.append(f"Selected document: {os.path.basename(file_path)}")
 
@@ -244,7 +265,7 @@ class BlogProcessorUI(QMainWindow):
 
         if file_path:
             self.video_path = file_path
-            self.video_label.setText(os.path.basename(file_path))
+            self.video_card.set_file(file_path)
             self._check_ready()
             self.log_output.append(f"Selected video: {os.path.basename(file_path)}")
 
@@ -260,11 +281,24 @@ class BlogProcessorUI(QMainWindow):
             self.process_button.setEnabled(False)
             self.log_output.append("\nProcessing blog...")
 
+            # Change cursor to waiting
+            try:
+                QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            except AttributeError:
+                # Fallback for older PyQt versions
+                QApplication.setOverrideCursor(Qt.WaitCursor)
+
             # Initialize processor
             processor = BlogProcessor(output_base_dir="processed_blogs")
 
             # Process blog
             result = processor.process_blog(self.doc_path, self.video_path)
+
+            # Reset cursor
+            try:
+                QApplication.restoreOverrideCursor()
+            except Exception:
+                pass  # Ignore errors when restoring cursor
 
             # Handle result
             if result.success:
@@ -278,13 +312,6 @@ class BlogProcessorUI(QMainWindow):
                     for warning in result.warnings:
                         self.log_output.append(f"  - {warning}")
 
-                # Update preview tabs with new content
-                self.html_viewer.set_html_file(result.html_path)
-                self.media_gallery.load_media_directory(result.media_folder)
-
-                # Switch to HTML preview tab
-                self.preview_tabs.setCurrentIndex(0)
-
                 # Try to open output folder
                 try:
                     if sys.platform == "darwin":  # macOS
@@ -292,7 +319,7 @@ class BlogProcessorUI(QMainWindow):
                     elif sys.platform == "win32":  # Windows
                         os.startfile(os.path.dirname(result.html_path))
                     self.log_output.append("\nOpened output folder!")
-                except:
+                except Exception:
                     self.log_output.append(f"\nOutput folder is at: {os.path.dirname(result.html_path)}")
             else:
                 self.log_output.append("\n❌ Blog processing failed!")
@@ -301,17 +328,19 @@ class BlogProcessorUI(QMainWindow):
 
         except Exception as e:
             self.log_output.append(f"\n❌ Error: {str(e)}")
-            # Print stack trace to console for debugging
-            import traceback
-            traceback.print_exc()
 
         finally:
             self.progress_bar.setVisible(False)
             self.process_button.setEnabled(True)
+            QApplication.restoreOverrideCursor()
 
 
 def main():
     app = QApplication(sys.argv)
+
+    # Apply global stylesheet
+    app.setStyle("Fusion")
+
     window = BlogProcessorUI()
     window.show()
     sys.exit(app.exec())
