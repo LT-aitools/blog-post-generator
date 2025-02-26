@@ -7,7 +7,7 @@ from .docx_reader import MediaMarker
 
 
 class HTMLGenerator:
-    """Generates Medium-compatible HTML from blog text and media markers."""
+    """Generates HTML from blog text and media markers."""
 
     def __init__(self, media_folder: str):
         """Initialize the HTML generator."""
@@ -179,18 +179,16 @@ class HTMLGenerator:
                 continue
 
             # Look for significant paragraph breaks that should start new numbered lists
-            if i > 0 and stripped and stripped[0].isdigit() and stripped.startswith("1. "):
-                # If there's a blank line before this "1. " and we're in a list or
+            if i > 0 and stripped and re.match(r'^\d+\.', stripped):
+                # If there's a blank line before this "NUMBER. " and we're in a list or
                 # if this is after a figure, consider it a new section
-                prev_line = lines[i - 1].strip() if i > 0 else None
-                prev_prev_line = lines[i - 2].strip() if i > 1 else None
+                prev_line = lines[i - 1].strip() if i > 0 else ""
 
-                # Check if we have a pattern indicating a new section:
-                # either blank line(s) followed by a "1. " or a "1. " after non-list content
+                # Check if we have a pattern indicating a new section
                 new_section = False
 
                 if prev_line == "":
-                    # Blank line before "1. "
+                    # Blank line before numbered item
                     new_section = True
                 elif not (prev_line.startswith("-") or re.match(r'^\d+\.', prev_line)):
                     # Previous line is not a list item
@@ -213,31 +211,24 @@ class HTMLGenerator:
                     section_counter += 1
 
             # Check for numbered list items (e.g., "1. Item")
-            numbered_match = re.match(r'^\d+\.\s+(.+)$', stripped)
+            numbered_match = re.match(r'^(\d+)\.\s+(.+)$', stripped)
             # Check for bullet points with dashes
             dash_match = re.match(r'^-\s+(.+)$', stripped)
 
             if numbered_match:
-                # Always create a new list for "1. " items that start a line, after significant breaks
-                if stripped.startswith("1. ") and (i == 0 or lines[i - 1].strip() == "" or not in_numbered_list):
-                    # Close any existing list first
-                    if in_numbered_list:
-                        processed_lines.append('</ol>')
-                    elif in_list:
-                        processed_lines.append('</ul>')
+                # Extract the actual number from the document
+                list_number = numbered_match.group(1)
+                list_content = numbered_match.group(2)
 
-                    # Start a fresh list
-                    processed_lines.append('<ol>')
-                    in_numbered_list = True
-                    in_list = True
-                elif not in_numbered_list:
-                    # Start a new numbered list for other cases
-                    processed_lines.append('<ol>')
+                # Decide if we need to start a new list or continue an existing one
+                if not in_numbered_list:
+                    # Start a new list with a style that keeps the original numbering
+                    processed_lines.append(f'<ol class="preserve-numbers">')
                     in_numbered_list = True
                     in_list = True
 
-                # Add the list item
-                processed_lines.append(f'<li>{numbered_match.group(1)}</li>')
+                # Add the list item with value attribute to specify the number
+                processed_lines.append(f'<li value="{list_number}">{list_content}</li>')
             elif dash_match:
                 if in_numbered_list:
                     # Close the numbered list before starting an unordered list
@@ -260,8 +251,8 @@ class HTMLGenerator:
                     prev_line = lines[i - 1].strip()
 
                     # Check if this is creating a significant break between sections
-                    if prev_line == "" and next_line.startswith("1. "):
-                        # Strong section break with double blank line before new "1." list
+                    if prev_line == "" and re.match(r'^\d+\.', next_line):
+                        # Strong section break with double blank line before new numbered list
                         if in_numbered_list:
                             processed_lines.append('</ol>')
                             in_numbered_list = False
@@ -465,6 +456,24 @@ class HTMLGenerator:
 
             li {
                 margin-bottom: 0.5em;
+            }
+
+            /* Override default list counter styles */
+            ol.preserve-numbers {
+                counter-reset: none;
+            }
+
+            ol.preserve-numbers > li {
+                list-style: none;
+                position: relative;
+            }
+
+            ol.preserve-numbers > li::before {
+                content: attr(value) ".";
+                position: absolute;
+                left: -2em;
+                width: 1.5em;
+                text-align: right;
             }
 
             /* Nested lists */
