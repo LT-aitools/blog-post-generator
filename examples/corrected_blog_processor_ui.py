@@ -10,7 +10,7 @@ sys.path.insert(0, str(project_root))
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QPushButton, QLabel,
                              QVBoxLayout, QHBoxLayout, QWidget, QFileDialog,
                              QTextEdit, QProgressBar, QFrame, QScrollArea)
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QTimer
 from PyQt6.QtGui import QFont, QColor, QPalette, QIcon
 from src.blog_processor import BlogProcessor
 
@@ -136,6 +136,9 @@ class BlogProcessorUI(QMainWindow):
         # Initialize file paths
         self.doc_path = None
         self.video_path = None
+
+        # Processing state
+        self.is_processing = False
 
         # Create central widget and layout
         central_widget = QWidget()
@@ -271,10 +274,16 @@ class BlogProcessorUI(QMainWindow):
 
     def _check_ready(self):
         """Check if both files are selected and enable/disable process button."""
-        self.process_button.setEnabled(bool(self.doc_path and self.video_path))
+        self.process_button.setEnabled(bool(self.doc_path and self.video_path) and not self.is_processing)
 
     def _process_blog(self):
         """Process the blog with selected files."""
+        # Prevent multiple processing attempts
+        if self.is_processing:
+            return
+
+        self.is_processing = True
+
         try:
             self.progress_bar.setVisible(True)
             self.progress_bar.setRange(0, 0)  # Indeterminate progress
@@ -282,23 +291,23 @@ class BlogProcessorUI(QMainWindow):
             self.log_output.append("\nProcessing blog...")
 
             # Change cursor to waiting
-            try:
-                QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-            except AttributeError:
-                # Fallback for older PyQt versions
-                QApplication.setOverrideCursor(Qt.WaitCursor)
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
 
+            # Use a timer to allow the UI to update before starting processing
+            QTimer.singleShot(100, self._execute_processing)
+
+        except Exception as e:
+            self._reset_ui()
+            self.log_output.append(f"\n❌ Error setting up processing: {str(e)}")
+
+    def _execute_processing(self):
+        """Execute the actual blog processing (called by timer)"""
+        try:
             # Initialize processor
             processor = BlogProcessor(output_base_dir="processed_blogs")
 
             # Process blog
             result = processor.process_blog(self.doc_path, self.video_path)
-
-            # Reset cursor
-            try:
-                QApplication.restoreOverrideCursor()
-            except Exception:
-                pass  # Ignore errors when restoring cursor
 
             # Handle result
             if result.success:
@@ -330,9 +339,18 @@ class BlogProcessorUI(QMainWindow):
             self.log_output.append(f"\n❌ Error: {str(e)}")
 
         finally:
-            self.progress_bar.setVisible(False)
-            self.process_button.setEnabled(True)
-            QApplication.restoreOverrideCursor()
+            # Reset UI using a small delay to ensure everything completes
+            QTimer.singleShot(100, self._reset_ui)
+
+    def _reset_ui(self):
+        """Reset the UI after processing completes"""
+        self.is_processing = False
+        self.progress_bar.setVisible(False)
+        self.process_button.setEnabled(bool(self.doc_path and self.video_path))
+        QApplication.restoreOverrideCursor()
+
+        # Ensure we process any pending events
+        QApplication.processEvents()
 
 
 def main():
