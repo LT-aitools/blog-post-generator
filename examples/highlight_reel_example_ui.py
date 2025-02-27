@@ -122,6 +122,8 @@ STARTING TIMESTAMP: 00:15:45
 - Key points
 - Examples
 """)
+        # Connect text changed signal to update button state
+        self.content_editor.textChanged.connect(self._update_create_button)
         main_layout.addWidget(self.content_editor)
 
         # Output directory section
@@ -194,35 +196,67 @@ STARTING TIMESTAMP: 00:15:45
         has_video = self.video_path is not None
         has_content = len(self.content_editor.toPlainText().strip()) > 0
 
+        # Always enable the button if we have a video and any content
         self.create_button.setEnabled(has_video and has_content)
+
+        # Log the state to help with debugging
+        print(f"Button state update - Has video: {has_video}, Has content: {has_content}")
+        self.log_output.append(f"Ready to create highlight reel: {has_video and has_content}")
 
     def create_highlight_reel(self):
         """Start the highlight reel creation process."""
-        content = self.content_editor.toPlainText()
-        output_dir = self.output_label.text()
+        try:
+            self.log_output.append("Starting highlight reel creation...")
 
-        # Basic validation
-        if not self.video_path or not os.path.exists(self.video_path):
-            self.log_output.append("Error: Please select a valid video file.")
-            return
+            content = self.content_editor.toPlainText()
+            output_dir = self.output_label.text()
 
-        if not content.strip():
-            self.log_output.append("Error: Please specify segment content.")
-            return
+            # Basic validation with better error messages
+            if not self.video_path:
+                self.log_output.append("Error: No video path selected.")
+                return
 
-        # Create output directory if it doesn't exist
-        os.makedirs(output_dir, exist_ok=True)
+            if not os.path.exists(self.video_path):
+                self.log_output.append(f"Error: Video file not found at {self.video_path}")
+                return
 
-        # Show progress
-        self.progress_bar.setVisible(True)
-        self.create_button.setEnabled(False)
-        self.progress_label.setText("Processing...")
+            if not content.strip():
+                self.log_output.append("Error: No segment content specified.")
+                return
 
-        # Start worker thread
-        self.worker = WorkerThread(self.video_path, content, output_dir)
-        self.worker.update_progress.connect(self.update_progress)
-        self.worker.finished.connect(self.process_finished)
-        self.worker.start()
+            # Validate segments can be extracted
+            segments = extract_segments_from_text(content)
+            if not segments:
+                self.log_output.append(
+                    "Error: Could not extract any valid segments from the text. Please check your format.")
+                self.log_output.append(
+                    "Each segment needs a title with '#' heading marks, duration in parentheses, and a STARTING TIMESTAMP line.")
+                return
+
+            # Log the segments that were found to help debugging
+            self.log_output.append(f"Found {len(segments)} segments to include in the highlight reel:")
+            for i, segment in enumerate(segments):
+                self.log_output.append(
+                    f"  {i + 1}. {segment.title} - Start: {segment.start_time}s, Duration: {segment.duration}s")
+
+            # Create output directory if it doesn't exist
+            os.makedirs(output_dir, exist_ok=True)
+
+            # Show progress
+            self.progress_bar.setVisible(True)
+            self.create_button.setEnabled(False)
+            self.progress_label.setText("Processing...")
+
+            # Start worker thread
+            self.worker = WorkerThread(self.video_path, content, output_dir)
+            self.worker.update_progress.connect(self.update_progress)
+            self.worker.finished.connect(self.process_finished)
+            self.worker.start()
+
+        except Exception as e:
+            self.log_output.append(f"Critical error: {str(e)}")
+            import traceback
+            self.log_output.append(traceback.format_exc())
 
     def update_progress(self, message):
         """Update progress message."""
