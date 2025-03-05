@@ -26,6 +26,7 @@ class StyledButton(QPushButton):
         self.setMinimumHeight(36)
         font = self.font()
         font.setPointSize(10)
+        font.setBold(True)  # Make text bold
         self.setFont(font)
 
         if primary:
@@ -36,6 +37,7 @@ class StyledButton(QPushButton):
                     border: none;
                     border-radius: 4px;
                     padding: 8px 16px;
+                    font-weight: bold;
                 }
                 QPushButton:hover {
                     background-color: #3a76d8;
@@ -51,17 +53,19 @@ class StyledButton(QPushButton):
         else:
             self.setStyleSheet("""
                 QPushButton {
-                    background-color: #f0f0f0;
+                    background-color: #e0e0e0;
                     color: #333333;
-                    border: 1px solid #cccccc;
+                    border: 1px solid #aaaaaa;
                     border-radius: 4px;
                     padding: 8px 16px;
+                    font-weight: bold;
                 }
                 QPushButton:hover {
-                    background-color: #e0e0e0;
+                    background-color: #d0d0d0;
+                    border: 1px solid #888888;
                 }
                 QPushButton:pressed {
-                    background-color: #d0d0d0;
+                    background-color: #c0c0c0;
                 }
             """)
 
@@ -107,6 +111,7 @@ class FileSelectionCard(QFrame):
         status_layout.addWidget(self.file_label, 1)
 
         self.select_button = StyledButton(select_text)
+        self.select_button.setMinimumWidth(120)  # Make buttons wider
         status_layout.addWidget(self.select_button)
 
         layout.addLayout(status_layout)
@@ -251,6 +256,17 @@ class HighlightReelUI(QMainWindow):
             QLabel {
                 color: #333333;
             }
+            QComboBox {
+                min-height: 30px;
+                padding: 5px;
+                border: 1px solid #aaaaaa;
+                border-radius: 4px;
+                background-color: white;
+            }
+            QComboBox::drop-down {
+                border: 0px;
+                width: 25px;
+            }
         """)
         self.video_path = None
         self.is_processing = False
@@ -282,16 +298,23 @@ class HighlightReelUI(QMainWindow):
         separator.setStyleSheet("background-color: #e0e0e0;")
         main_layout.addWidget(separator)
 
-        # Create file selection area
-        main_layout.addWidget(QLabel("1. Select your video"))
+        # Create file selection area - Make section header more visible
+        section_label = QLabel("1. Select your video")
+        section_font = section_label.font()
+        section_font.setBold(True)
+        section_font.setPointSize(12)
+        section_label.setFont(section_font)
+        main_layout.addWidget(section_label)
 
         # Video selection card
         self.video_card = FileSelectionCard("Video File", select_text="Select Video")
         self.video_card.select_button.clicked.connect(self._select_video)
         main_layout.addWidget(self.video_card)
 
-        # Format selection
-        main_layout.addWidget(QLabel("2. Choose format and enter segment details"))
+        # Format selection - Make section header more visible
+        section_label = QLabel("2. Choose format and enter segment details")
+        section_label.setFont(section_font)
+        main_layout.addWidget(section_label)
 
         format_card = QFrame()
         format_card.setFrameShape(QFrame.Shape.StyledPanel)
@@ -315,10 +338,11 @@ class HighlightReelUI(QMainWindow):
         self.format_selector = QComboBox()
         self.format_selector.setStyleSheet("""
             QComboBox {
-                border: 1px solid #cccccc;
+                border: 1px solid #aaaaaa;
                 border-radius: 4px;
                 padding: 5px;
-                min-height: 25px;
+                min-height: 30px;
+                background-color: white;
             }
         """)
         self.format_selector.addItem("Standard Format", "standard")
@@ -327,6 +351,7 @@ class HighlightReelUI(QMainWindow):
         format_selector_layout.addWidget(self.format_selector)
 
         self.show_example_button = StyledButton("Show Example")
+        self.show_example_button.setMinimumWidth(120)  # Make button wider
         self.show_example_button.clicked.connect(self._show_format_example)
         format_selector_layout.addWidget(self.show_example_button)
         format_layout.addLayout(format_selector_layout)
@@ -340,13 +365,18 @@ class HighlightReelUI(QMainWindow):
         main_layout.addWidget(format_card)
 
         # Content editor
-        main_layout.addWidget(QLabel("Segment Specifications:"))
+        content_label = QLabel("Segment Specifications:")
+        content_label_font = content_label.font()
+        content_label_font.setBold(True)
+        content_label.setFont(content_label_font)
+        main_layout.addWidget(content_label)
+
         self.content_editor = QTextEdit()
         self.content_editor.setMinimumHeight(180)
         self.content_editor.setStyleSheet("""
             QTextEdit {
                 background-color: white;
-                border: 1px solid #e0e0e0;
+                border: 1px solid #aaaaaa;
                 border-radius: 6px;
                 padding: 8px;
             }
@@ -357,8 +387,10 @@ class HighlightReelUI(QMainWindow):
         # Set initial help text
         self._update_format_help()
 
-        # Add output directory section
-        main_layout.addWidget(QLabel("3. Select output location"))
+        # Add output directory section - Make section header more visible
+        section_label = QLabel("3. Select output location")
+        section_label.setFont(section_font)
+        main_layout.addWidget(section_label)
 
         # Output directory card
         self.output_card = FileSelectionCard("Output Directory", select_text="Select Folder")
@@ -366,8 +398,9 @@ class HighlightReelUI(QMainWindow):
         self.output_card.select_button.clicked.connect(self._select_output_dir)
         main_layout.addWidget(self.output_card)
 
-        # Process button
+        # Process button - Make it more prominent
         self.process_button = StyledButton("Create Highlight Reel", primary=True)
+        self.process_button.setMinimumHeight(50)  # Taller button
         self.process_button.setEnabled(False)
         self.process_button.clicked.connect(self._process_highlight_reel)
         main_layout.addWidget(self.process_button)
@@ -390,8 +423,11 @@ class HighlightReelUI(QMainWindow):
         """)
         main_layout.addWidget(self.progress_bar)
 
-        # Create log output area with scroll
-        main_layout.addWidget(QLabel("4. Results"))
+        # Create log output area with scroll - Make section header more visible
+        section_label = QLabel("4. Results")
+        section_label.setFont(section_font)
+        main_layout.addWidget(section_label)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -406,7 +442,7 @@ class HighlightReelUI(QMainWindow):
         self.log_output.setStyleSheet("""
             QTextEdit {
                 background-color: white;
-                border: 1px solid #e0e0e0;
+                border: 1px solid #aaaaaa;
                 border-radius: 6px;
                 padding: 8px;
                 font-family: monospace;
