@@ -403,27 +403,48 @@ class HTMLGenerator:
         html_content = self._convert_markdown_headers(html_content)
         html_content = self._process_lists(html_content)
 
-        # Split content by double newlines for paragraph processing
-        paragraphs = html_content.split('\n\n')
+        # First, normalize line endings
+        html_content = html_content.replace('\r\n', '\n').replace('\r', '\n')
+
+        # Look for paragraph breaks (consecutive newlines or markdown-style breaks)
+        paragraphs = re.split(r'\n\s*\n', html_content)
         html_paragraphs = []
 
         for p in paragraphs:
-            if p.strip():
-                # Skip wrapping in <p> tags if the paragraph already contains HTML elements
-                if re.search(r'<(h[1-6]|ul|ol|li|figure|em|strong)', p):
-                    html_paragraphs.append(p.strip())
+            p = p.strip()
+            if not p:
+                continue  # Skip empty paragraphs
+
+            # Skip wrapping in <p> tags if the paragraph already contains HTML block elements
+            if re.search(r'<(h[1-6]|ul|ol|li|figure)', p):
+                html_paragraphs.append(p)
+            else:
+                # If it contains inline HTML elements but no block elements, still wrap it
+                # For single-line content, wrap the whole thing
+                if '\n' not in p:
+                    # Don't double-wrap paragraphs
+                    if not re.match(r'^\s*<p>.*</p>\s*$', p, re.DOTALL):
+                        p = f'<p>{p}</p>'
+                    html_paragraphs.append(p)
                 else:
-                    # Check for single-line HTML elements
-                    lines = p.strip().split('\n')
+                    # For multi-line content, process each line
+                    lines = p.split('\n')
                     processed_lines = []
 
                     for line in lines:
-                        # If the line already has HTML, don't wrap it in <p>
-                        if re.search(r'<(h[1-6]|ul|ol|li|figure|em|strong)', line):
+                        line = line.strip()
+                        if not line:
+                            continue
+
+                        # If the line already has block HTML, don't wrap it
+                        if re.search(r'<(h[1-6]|ul|ol|li|figure)', line):
                             processed_lines.append(line)
                         else:
-                            # Wrap non-HTML lines in <p> tags
-                            processed_lines.append(f'<p>{line}</p>')
+                            # Don't double-wrap paragraphs
+                            if not re.match(r'^\s*<p>.*</p>\s*$', line, re.DOTALL):
+                                processed_lines.append(f'<p>{line}</p>')
+                            else:
+                                processed_lines.append(line)
 
                     html_paragraphs.append('\n'.join(processed_lines))
 
