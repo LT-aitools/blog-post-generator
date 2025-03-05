@@ -15,9 +15,9 @@ class HTMLGenerator:
         # Get just the folder name, not the full path
         self.media_folder_name = os.path.basename(media_folder)
 
-        # Define patterns to match markers in text - updated to make align optional
-        self.clip_pattern = r'\[CLIP\s+timestamp="([^"]+)"\s+duration="([^"]+)"(?:\s+align\s*[="]*([^"\]\s]+)["]?)?\]([^\[]*)'
-        self.screenshot_pattern = r'\[SCREENSHOT\s+timestamp="([^"]+)"(?:\s+align\s*[="]*([^"\]\s]+)["]?)?\]([^\[]*)'
+        # Define patterns to match markers in text
+        self.clip_pattern = r'\[CLIP\s+timestamp="([^"]+)"\s+duration="([^"]+)"\s+align\s*[="]*([^"\]\s]+)["]?\]([^\[]*)'
+        self.screenshot_pattern = r'\[SCREENSHOT\s+timestamp="([^"]+)"\s+align\s*[="]*([^"\]\s]+)["]?\]([^\[]*)'
 
         # Immediately scan for all media files
         self.all_media_files = self._scan_for_media_files()
@@ -121,12 +121,13 @@ class HTMLGenerator:
 
     def _convert_markdown_headers(self, text):
         """Convert markdown headers to HTML."""
-        # Replace ### headers
-        text = re.sub(r'^###\s+(.+)$', r'<h3>\1</h3>', text, flags=re.MULTILINE)
-        # Replace ## headers
-        text = re.sub(r'^##\s+(.+)$', r'<h2>\1</h2>', text, flags=re.MULTILINE)
-        # Replace # headers
-        text = re.sub(r'^#\s+(.+)$', r'<h1>\1</h1>', text, flags=re.MULTILINE)
+        # Process headers from h6 to h1 (in that order to avoid conflicts)
+        text = re.sub(r'^\s*######\s+(.+)$', r'<h6>\1</h6>', text, flags=re.MULTILINE)
+        text = re.sub(r'^\s*#####\s+(.+)$', r'<h5>\1</h5>', text, flags=re.MULTILINE)
+        text = re.sub(r'^\s*####\s+(.+)$', r'<h4>\1</h4>', text, flags=re.MULTILINE)
+        text = re.sub(r'^\s*###\s+(.+)$', r'<h3>\1</h3>', text, flags=re.MULTILINE)
+        text = re.sub(r'^\s*##\s+(.+)$', r'<h2>\1</h2>', text, flags=re.MULTILINE)
+        text = re.sub(r'^\s*#\s+(.+)$', r'<h1>\1</h1>', text, flags=re.MULTILINE)
         return text
 
     def _process_lists(self, text):
@@ -320,7 +321,7 @@ class HTMLGenerator:
 
                     # Try to find the marker using regex
                     if marker.type == 'SCREENSHOT':
-                        pattern = r'\[SCREENSHOT\s+timestamp="([^"]+)"(?:\s+align\s*[="]*([^"\]\s]+)["]?)?\]'
+                        pattern = r'\[SCREENSHOT\s+timestamp="([^"]+)"\s+align\s*[="]*([^"\]\s]+)["]?\]'
                         matches = list(re.finditer(pattern, html_content))
                         if matches:
                             for match in matches:
@@ -360,14 +361,9 @@ class HTMLGenerator:
                 ts_match = re.search(r'timestamp="([^"]+)"', marker_text)
                 align_match = re.search(r'align\s*[="]*([^"\]\s]+)["]?', marker_text)
 
-                if ts_match and i < len(screenshot_files):
+                if ts_match and align_match and i < len(screenshot_files):
                     timestamp = ts_match.group(1)
-
-                    # Default to "center" if align is None or empty
-                    if align_match and align_match.group(1):
-                        align = align_match.group(1).strip('"').strip()
-                    else:
-                        align = "center"
+                    align = align_match.group(1)
 
                     # Create HTML element with the next available screenshot
                     image_path = os.path.relpath(screenshot_files[i], os.path.dirname(self.media_folder))
@@ -451,6 +447,18 @@ class HTMLGenerator:
 
             h3 {
                 font-size: 1.2em;
+            }
+
+            h4 {
+                font-size: 1.1em;
+            }
+
+            h5 {
+                font-size: 1em;
+            }
+
+            h6 {
+                font-size: 0.9em;
             }
 
             /* Lists styling */
