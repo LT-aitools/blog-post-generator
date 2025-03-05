@@ -19,6 +19,10 @@ class HTMLGenerator:
         self.clip_pattern = r'\[CLIP\s+timestamp="([^"]+)"\s+duration="([^"]+)"\s+align\s*[="]*([^"\]\s]+)["]?\]([^\[]*)'
         self.screenshot_pattern = r'\[SCREENSHOT\s+timestamp="([^"]+)"\s+align\s*[="]*([^"\]\s]+)["]?\]([^\[]*)'
 
+        # Patterns for markers without align parameter
+        self.clip_pattern_no_align = r'\[CLIP\s+timestamp="([^"]+)"\s+duration="([^"]+)"\]([^\[]*)'
+        self.screenshot_pattern_no_align = r'\[SCREENSHOT\s+timestamp="([^"]+)"\]([^\[]*)'
+
         # Immediately scan for all media files
         self.all_media_files = self._scan_for_media_files()
         self._log_media_files()
@@ -162,7 +166,7 @@ class HTMLGenerator:
                 section_counter += 1
 
             # Check if this is a header line with markdown syntax
-            header_match = re.match(r'^#{1,6}\s+(.+)$', stripped)
+            header_match = re.match(r'^<h[1-6]>', stripped)
             is_header = header_match is not None
 
             if is_header:
@@ -286,6 +290,19 @@ class HTMLGenerator:
 
     def generate_html(self, blog_text: str, markers: List[MediaMarker]) -> str:
         """Generate HTML from blog text and media markers."""
+        # Process markdown formatting first
+        # Handle italics (text between single asterisks)
+        blog_text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<em>\1</em>', blog_text)
+        # Handle bold (text between double asterisks)
+        blog_text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', blog_text)
+        # Handle escaped headers (convert \# to # for proper header recognition)
+        blog_text = re.sub(r'\\#\s+(.+?)$', r'# \1', blog_text, flags=re.MULTILINE)
+        blog_text = re.sub(r'\\##\s+(.+?)$', r'## \1', blog_text, flags=re.MULTILINE)
+        blog_text = re.sub(r'\\###\s+(.+?)$', r'### \1', blog_text, flags=re.MULTILINE)
+        blog_text = re.sub(r'\\####\s+(.+?)$', r'#### \1', blog_text, flags=re.MULTILINE)
+        # Handle escaped list numbers (convert \1. to 1.)
+        blog_text = re.sub(r'\\(\d+)\.\s+(.+?)$', r'\1. \2', blog_text, flags=re.MULTILINE)
+
         # Create a copy of the blog text that we'll modify
         html_content = blog_text
 
@@ -369,20 +386,20 @@ class HTMLGenerator:
                     image_path = os.path.relpath(screenshot_files[i], os.path.dirname(self.media_folder))
 
                     # Create a temporary marker for the HTML generation
-                    temp_marker = MediaMarker(
-                        type='SCREENSHOT',
-                        timestamp=0,
-                        duration=None,
-                        align=align,
-                        caption=f"Screenshot at {timestamp}",
-                        original_text=""
-                    )
+                    temp_marker = type('MediaMarker', (), {
+                        'type': 'SCREENSHOT',
+                        'timestamp': 0,
+                        'duration': None,
+                        'align': align,
+                        'caption': f"Screenshot at {timestamp}",
+                        'original_text': ""
+                    })
 
                     html_element = self._create_image_element(temp_marker, image_path)
                     html_content = html_content.replace(marker_text, html_element)
                     print(f"  Replaced unprocessed marker with image: {image_path}")
 
-        # Process markdown headers and lists before splitting into paragraphs
+        # Process markdown headers and lists
         html_content = self._convert_markdown_headers(html_content)
         html_content = self._process_lists(html_content)
 
@@ -393,7 +410,7 @@ class HTMLGenerator:
         for p in paragraphs:
             if p.strip():
                 # Skip wrapping in <p> tags if the paragraph already contains HTML elements
-                if re.search(r'<(h[1-6]|ul|ol|li|figure)', p):
+                if re.search(r'<(h[1-6]|ul|ol|li|figure|em|strong)', p):
                     html_paragraphs.append(p.strip())
                 else:
                     # Check for single-line HTML elements
@@ -402,7 +419,7 @@ class HTMLGenerator:
 
                     for line in lines:
                         # If the line already has HTML, don't wrap it in <p>
-                        if re.search(r'<(h[1-6]|ul|ol|li|figure)', line):
+                        if re.search(r'<(h[1-6]|ul|ol|li|figure|em|strong)', line):
                             processed_lines.append(line)
                         else:
                             # Wrap non-HTML lines in <p> tags
@@ -428,6 +445,14 @@ class HTMLGenerator:
 
             p {
                 margin: 0.7em 0;
+            }
+
+            em {
+                font-style: italic;
+            }
+
+            strong {
+                font-weight: bold;
             }
 
             /* Header styling to match markdown formatting */

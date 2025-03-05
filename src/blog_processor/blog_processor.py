@@ -1,7 +1,7 @@
 import os
 import logging
 import traceback  # Added for detailed error reporting
-from typing import Optional
+from typing import Optional, List
 from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime
@@ -63,7 +63,7 @@ class BlogProcessor:
 
         return blog_dir, media_dir
 
-    def _extract_media(self, video_path: str, media_dir: str, markers: list[MediaMarker]) -> bool:
+    def _extract_media(self, video_path: str, media_dir: str, markers: List[MediaMarker]) -> bool:
         """Extract all media files based on markers."""
         try:
             # Check if there are any markers to process
