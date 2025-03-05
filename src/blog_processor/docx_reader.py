@@ -8,9 +8,9 @@ from docx import Document
 @dataclass
 class MediaMarker:
     type: str  # 'CLIP' or 'SCREENSHOT'
-    timestamp: str
-    duration: Optional[str]
-    align: str
+    timestamp: int  # Changed to explicitly use int instead of str
+    duration: Optional[int]  # Changed to explicitly use int instead of str
+    align: str  # Modified to default to "center" when not specified
     caption: str
     original_text: str
 
@@ -28,9 +28,14 @@ class BlogDocumentReader:
             handler.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
             self.logger.addHandler(handler)
 
-        # More forgiving regex patterns
+        # Original regex patterns, keeping them unmodified to ensure compatibility
+        # This should be an exact match for the original pattern used in your system
         self.clip_pattern = r'\[CLIP\s+timestamp="([^"]+)"\s+duration="([^"]+)"\s+align\s*[="]*([^"\]\s]+)["]?\]([^\[]*)'
         self.screenshot_pattern = r'\[SCREENSHOT\s+timestamp="([^"]+)"\s+align\s*[="]*([^"\]\s]+)["]?\]([^\[]*)'
+
+        # Additional patterns for capturing markers without align parameter
+        self.clip_pattern_no_align = r'\[CLIP\s+timestamp="([^"]+)"\s+duration="([^"]+)"\]([^\[]*)'
+        self.screenshot_pattern_no_align = r'\[SCREENSHOT\s+timestamp="([^"]+)"\]([^\[]*)'
 
     def parse_time(self, time_str: str) -> int:
         """Convert time string (e.g., '1:30' or '00:01:30') to seconds."""
@@ -65,16 +70,29 @@ class BlogDocumentReader:
             self.logger.info(f"Processing paragraph {i}:")
             self.logger.info(f"Text: {text}")
 
-            # Look for clip markers
-            clip_matches = list(re.finditer(self.clip_pattern, text))
-            if clip_matches:
-                self.logger.info(f"Found {len(clip_matches)} clip markers in paragraph {i}")
+            # Process both types of patterns for each marker type
+            self._process_clip_markers(text, markers, i)
+            self._process_screenshot_markers(text, markers, i)
+
+            full_text.append(text)
+
+        self.logger.info(f"Total markers found: {len(markers)}")
+        for i, marker in enumerate(markers, 1):
+            self.logger.info(f"Marker {i}: {marker.type} at {marker.timestamp}s")
+
+        return markers, '\n'.join(full_text)
+
+    def _process_clip_markers(self, text: str, markers: List[MediaMarker], paragraph_num: int):
+        """Process clip markers with and without align parameter."""
+        # First, check for clip markers with align parameter
+        clip_matches = list(re.finditer(self.clip_pattern, text))
+        if clip_matches:
+            self.logger.info(f"Found {len(clip_matches)} clip markers with align in paragraph {paragraph_num}")
 
             for match in clip_matches:
                 try:
                     timestamp, duration, align, caption = match.groups()
-                    self.logger.info(
-                        f"Found CLIP marker - timestamp: {timestamp}, duration: {duration}, align: {align}")
+                    self.logger.info(f"Found CLIP marker - timestamp: {timestamp}, duration: {duration}, align: {align}")
 
                     # Clean up align value
                     align = align.strip('"').strip()
@@ -91,10 +109,37 @@ class BlogDocumentReader:
                     self.logger.error(f"Error processing clip marker: {str(e)}")
                     self.logger.error(f"Marker text: {match.group(0)}")
 
-            # Look for screenshot markers
-            screenshot_matches = list(re.finditer(self.screenshot_pattern, text))
-            if screenshot_matches:
-                self.logger.info(f"Found {len(screenshot_matches)} screenshot markers in paragraph {i}")
+        # Next, check for clip markers without align parameter
+        clip_no_align_matches = list(re.finditer(self.clip_pattern_no_align, text))
+        if clip_no_align_matches:
+            self.logger.info(f"Found {len(clip_no_align_matches)} clip markers without align in paragraph {paragraph_num}")
+
+            for match in clip_no_align_matches:
+                try:
+                    timestamp, duration, caption = match.groups()
+                    self.logger.info(f"Found CLIP marker (no align) - timestamp: {timestamp}, duration: {duration}")
+
+                    # Set default align to center
+                    align = "center"
+
+                    markers.append(MediaMarker(
+                        type='CLIP',
+                        timestamp=self.parse_time(timestamp),
+                        duration=self.parse_time(duration),
+                        align=align,
+                        caption=caption.strip(),
+                        original_text=match.group(0)
+                    ))
+                except Exception as e:
+                    self.logger.error(f"Error processing clip marker (no align): {str(e)}")
+                    self.logger.error(f"Marker text: {match.group(0)}")
+
+    def _process_screenshot_markers(self, text: str, markers: List[MediaMarker], paragraph_num: int):
+        """Process screenshot markers with and without align parameter."""
+        # First, check for screenshot markers with align parameter
+        screenshot_matches = list(re.finditer(self.screenshot_pattern, text))
+        if screenshot_matches:
+            self.logger.info(f"Found {len(screenshot_matches)} screenshot markers with align in paragraph {paragraph_num}")
 
             for match in screenshot_matches:
                 try:
@@ -116,13 +161,30 @@ class BlogDocumentReader:
                     self.logger.error(f"Error processing screenshot marker: {str(e)}")
                     self.logger.error(f"Marker text: {match.group(0)}")
 
-            full_text.append(text)
+        # Next, check for screenshot markers without align parameter
+        screenshot_no_align_matches = list(re.finditer(self.screenshot_pattern_no_align, text))
+        if screenshot_no_align_matches:
+            self.logger.info(f"Found {len(screenshot_no_align_matches)} screenshot markers without align in paragraph {paragraph_num}")
 
-        self.logger.info(f"Total markers found: {len(markers)}")
-        for i, marker in enumerate(markers, 1):
-            self.logger.info(f"Marker {i}: {marker.type} at {marker.timestamp}s")
+            for match in screenshot_no_align_matches:
+                try:
+                    timestamp, caption = match.groups()
+                    self.logger.info(f"Found SCREENSHOT marker (no align) - timestamp: {timestamp}")
 
-        return markers, '\n'.join(full_text)
+                    # Set default align to center
+                    align = "center"
+
+                    markers.append(MediaMarker(
+                        type='SCREENSHOT',
+                        timestamp=self.parse_time(timestamp),
+                        duration=None,
+                        align=align,
+                        caption=caption.strip(),
+                        original_text=match.group(0)
+                    ))
+                except Exception as e:
+                    self.logger.error(f"Error processing screenshot marker (no align): {str(e)}")
+                    self.logger.error(f"Marker text: {match.group(0)}")
 
     def validate_markers(self, markers: List[MediaMarker]) -> List[str]:
         """Validate the extracted markers for potential issues."""

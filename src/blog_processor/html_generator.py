@@ -15,9 +15,9 @@ class HTMLGenerator:
         # Get just the folder name, not the full path
         self.media_folder_name = os.path.basename(media_folder)
 
-        # Define patterns to match markers in text
-        self.clip_pattern = r'\[CLIP\s+timestamp="([^"]+)"\s+duration="([^"]+)"\s+align\s*[="]*([^"\]\s]+)["]?\]([^\[]*)'
-        self.screenshot_pattern = r'\[SCREENSHOT\s+timestamp="([^"]+)"\s+align\s*[="]*([^"\]\s]+)["]?\]([^\[]*)'
+        # Define patterns to match markers in text - updated to make align optional
+        self.clip_pattern = r'\[CLIP\s+timestamp="([^"]+)"\s+duration="([^"]+)"(?:\s+align\s*[="]*([^"\]\s]+)["]?)?\]([^\[]*)'
+        self.screenshot_pattern = r'\[SCREENSHOT\s+timestamp="([^"]+)"(?:\s+align\s*[="]*([^"\]\s]+)["]?)?\]([^\[]*)'
 
         # Immediately scan for all media files
         self.all_media_files = self._scan_for_media_files()
@@ -320,7 +320,7 @@ class HTMLGenerator:
 
                     # Try to find the marker using regex
                     if marker.type == 'SCREENSHOT':
-                        pattern = r'\[SCREENSHOT\s+timestamp="([^"]+)"\s+align\s*[="]*([^"\]\s]+)["]?\]'
+                        pattern = r'\[SCREENSHOT\s+timestamp="([^"]+)"(?:\s+align\s*[="]*([^"\]\s]+)["]?)?\]'
                         matches = list(re.finditer(pattern, html_content))
                         if matches:
                             for match in matches:
@@ -360,9 +360,14 @@ class HTMLGenerator:
                 ts_match = re.search(r'timestamp="([^"]+)"', marker_text)
                 align_match = re.search(r'align\s*[="]*([^"\]\s]+)["]?', marker_text)
 
-                if ts_match and align_match and i < len(screenshot_files):
+                if ts_match and i < len(screenshot_files):
                     timestamp = ts_match.group(1)
-                    align = align_match.group(1)
+
+                    # Default to "center" if align is None or empty
+                    if align_match and align_match.group(1):
+                        align = align_match.group(1).strip('"').strip()
+                    else:
+                        align = "center"
 
                     # Create HTML element with the next available screenshot
                     image_path = os.path.relpath(screenshot_files[i], os.path.dirname(self.media_folder))

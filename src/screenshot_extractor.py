@@ -17,7 +17,8 @@ def extract_screenshots_at_times(video_path, output_dir, timestamps):
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video file not found: {video_path}")
 
-    validate_timestamps(timestamps)
+    # Allow duplicate timestamps - this is the key change
+    validate_timestamps(timestamps, allow_duplicates=True)
 
     # Get video filename without extension for naming
     video_filename = os.path.splitext(os.path.basename(video_path))[0]

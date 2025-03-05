@@ -19,7 +19,8 @@ def extract_video_clip(video_path, output_dir, start_time, duration):
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video file not found: {video_path}")
 
-    validate_timestamps([start_time])
+    # Allow duplicate timestamps - this is the key change
+    validate_timestamps([start_time], allow_duplicates=True)
     if duration <= 0:
         raise ValueError("Duration must be positive")
 
