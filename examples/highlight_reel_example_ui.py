@@ -15,8 +15,9 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QPushButton, QLabel,
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSize
 from PyQt6.QtGui import QFont, QIcon, QPalette, QColor
 
-from src.highlight_reel_extractor import VideoSegment, create_highlight_reel
-
+# Import the corrected highlight reel extractor
+from src.highlight_reel_extractor import VideoSegment, extract_segments_from_text
+from src.highlight_reel_extractor import create_highlight_reel_from_file as create_highlight_reel
 
 class StyledButton(QPushButton):
     """Custom styled button with modern appearance"""
@@ -126,88 +127,24 @@ class FileSelectionCard(QFrame):
             self.file_label.setStyleSheet("color: #777777;")
 
 
-class CustomFormatParser:
-    """Parser for custom highlight reel specifications."""
-
-    @staticmethod
-    def parse_custom_format(text_content):
-        """Parse the custom format with ## titles and 🔹 **STARTING TIMESTAMP:** markers."""
-        segments = []
-
-        # Regular expression to find segments
-        segment_pattern = r'## (.*?)(?:--|:) (\d+):(\d+)\n(.*?)(?=## |\Z)'
-        timestamp_pattern = r'🔹 \*\*STARTING TIMESTAMP:\*\* (\d+):(\d+):(\d+)'
-
-        # Find all segments in the text
-        segment_matches = re.finditer(segment_pattern, text_content, re.DOTALL)
-
-        for match in segment_matches:
-            title = match.group(1).strip()
-            duration_minutes = int(match.group(2))
-            duration_seconds = int(match.group(3))
-            total_duration_seconds = duration_minutes * 60 + duration_seconds
-            segment_content = match.group(4).strip()
-
-            # Find timestamp in segment content
-            timestamp_match = re.search(timestamp_pattern, segment_content)
-            if not timestamp_match:
-                print(f"Warning: No timestamp found for segment: {title}")
-                continue
-
-            hours = int(timestamp_match.group(1))
-            minutes = int(timestamp_match.group(2))
-            seconds = int(timestamp_match.group(3))
-            start_time = hours * 3600 + minutes * 60 + seconds
-
-            # Extract description (everything after the timestamp line)
-            lines = segment_content.split('\n')
-            description_lines = []
-            timestamp_found = False
-
-            for line in lines:
-                if '**STARTING TIMESTAMP:**' in line:
-                    timestamp_found = True
-                    continue
-                if timestamp_found and line.strip():
-                    # Add everything after the timestamp line
-                    description_lines.append(line.strip())
-
-            description = '\n'.join(description_lines)
-
-            # Create and add the segment
-            segments.append(VideoSegment(
-                start_time=start_time,
-                duration=total_duration_seconds,
-                title=title,
-                description=description
-            ))
-
-        return segments
-
-
 class WorkerThread(QThread):
     """Worker thread for creating highlight reels without freezing the UI."""
     update_progress = pyqtSignal(str)
     finished = pyqtSignal(bool, str)
 
-    def __init__(self, video_path, content, output_dir, format_type="standard"):
+    def __init__(self, video_path, content, output_dir):
         super().__init__()
         self.video_path = video_path
         self.content = content
         self.output_dir = output_dir
-        self.format_type = format_type
 
     def run(self):
         try:
-            # Extract segments from content based on format
+            # Extract segments from content
             self.update_progress.emit("Analyzing content for video segments...")
 
-            if self.format_type == "custom":
-                segments = CustomFormatParser.parse_custom_format(self.content)
-            else:
-                # Use the original parser from highlight_reel_extractor
-                from src.highlight_reel_extractor import extract_segments_from_text
-                segments = extract_segments_from_text(self.content)
+            # Use the updated extract_segments_from_text function
+            segments = extract_segments_from_text(self.content)
 
             if not segments:
                 self.update_progress.emit("No valid segments found in the content.")
@@ -312,7 +249,7 @@ class HighlightReelUI(QMainWindow):
         main_layout.addWidget(self.video_card)
 
         # Format selection - Make section header more visible
-        section_label = QLabel("2. Choose format and enter segment details")
+        section_label = QLabel("2. Enter segment details")
         section_label.setFont(section_font)
         main_layout.addWidget(section_label)
 
@@ -327,40 +264,38 @@ class HighlightReelUI(QMainWindow):
         """)
         format_layout = QVBoxLayout(format_card)
 
-        # Format selection dropdown
-        format_header = QLabel("Format Type")
+        # Format help header
+        format_header = QLabel("Format Information")
         format_header_font = format_header.font()
         format_header_font.setBold(True)
         format_header.setFont(format_header_font)
         format_layout.addWidget(format_header)
 
+        # Format selector layout with example button
         format_selector_layout = QHBoxLayout()
-        self.format_selector = QComboBox()
-        self.format_selector.setStyleSheet("""
-            QComboBox {
-                border: 1px solid #aaaaaa;
-                border-radius: 4px;
-                padding: 5px;
-                min-height: 30px;
-                background-color: white;
-            }
-        """)
-        self.format_selector.addItem("Standard Format", "standard")
-        self.format_selector.addItem("Custom Format (## Titles with Timestamps)", "custom")
-        self.format_selector.currentIndexChanged.connect(self._update_format_help)
-        format_selector_layout.addWidget(self.format_selector)
 
-        self.show_example_button = StyledButton("Show Example")
-        self.show_example_button.setMinimumWidth(120)  # Make button wider
-        self.show_example_button.clicked.connect(self._show_format_example)
-        format_selector_layout.addWidget(self.show_example_button)
-        format_layout.addLayout(format_selector_layout)
-
-        # Format help text
-        self.format_help_label = QLabel()
+        self.format_help_label = QLabel(
+            "Enter your highlight reel specification using one of the supported formats:"
+        )
         self.format_help_label.setWordWrap(True)
         self.format_help_label.setStyleSheet("color: #666666; padding: 5px;")
         format_layout.addWidget(self.format_help_label)
+
+        # Add format details
+        self.format_details = QLabel(
+            "• Standard Format with #### headers and STARTING TIMESTAMP: fields\n"
+            "• Simple Format with SEGMENT:, TIME:, and DURATION: markers\n"
+            "• Custom Format with 'Segment X:' titles and **STARTING TIMESTAMP:** markers"
+        )
+        self.format_details.setStyleSheet("color: #333333; padding: 5px;")
+        format_layout.addWidget(self.format_details)
+
+        self.show_example_button = StyledButton("Show Examples")
+        self.show_example_button.setMinimumWidth(120)
+        self.show_example_button.clicked.connect(self._show_format_examples)
+        format_selector_layout.addWidget(self.show_example_button)
+        format_selector_layout.addStretch()
+        format_layout.addLayout(format_selector_layout)
 
         main_layout.addWidget(format_card)
 
@@ -384,8 +319,13 @@ class HighlightReelUI(QMainWindow):
         self.content_editor.textChanged.connect(self._check_ready)
         main_layout.addWidget(self.content_editor)
 
-        # Set initial help text
-        self._update_format_help()
+        # Set placeholder text for the content editor
+        self.content_editor.setPlaceholderText(
+            "Enter your highlight reel specification here...\n\n"
+            "Example custom format:\n"
+            "Segment 1: Opening Hook - AI Hallucinations in Action (01:30)\n"
+            "**STARTING TIMESTAMP:** 00:16:30 **CONTENT DESCRIPTION:** Start with the most surprising discovery..."
+        )
 
         # Add output directory section - Make section header more visible
         section_label = QLabel("3. Select output location")
@@ -457,51 +397,21 @@ class HighlightReelUI(QMainWindow):
         self.log_output.append("Welcome to the Highlight Reel Creator!")
         self.log_output.append("Select your video file and enter segment specifications to begin.")
 
-    def _update_format_help(self):
-        """Update help text based on selected format."""
-        format_type = self.format_selector.currentData()
-
-        if format_type == "standard":
-            self.format_help_label.setText(
-                "Standard Format: Use segment headings with hashtags and 'STARTING TIMESTAMP:' field.\n"
-                "Example: #### Segment Title (duration in minutes)\nSTARTING TIMESTAMP: HH:MM:SS"
-            )
-            self.content_editor.setPlaceholderText("""Example:
-#### Segment 1: Introduction (2 minutes)
-STARTING TIMESTAMP: 00:01:30
-- Opening remarks
-- Overview of topics
-
-#### Segment 2: Main Discussion (3 minutes)
-STARTING TIMESTAMP: 00:15:45
-- Key points
-- Examples
-""")
-        else:
-            self.format_help_label.setText(
-                "Custom Format: Use ## for titles with duration in the format mm:ss.\n"
-                "Example: ## Title -- Duration: mm:ss\n🔹 **STARTING TIMESTAMP:** HH:MM:SS"
-            )
-            self.content_editor.setPlaceholderText("""Example:
-## Opening Segment -- 01:30
-🔹 **STARTING TIMESTAMP:** 00:01:30
-🔹 **CONTENT DESCRIPTION:** Description of opening segment content
-
-## Main Content -- 02:45
-🔹 **STARTING TIMESTAMP:** 00:15:45
-🔹 **CONTENT DESCRIPTION:** Description of main content
-""")
-
-    def _show_format_example(self):
-        """Show a full example of the current format."""
-        format_type = self.format_selector.currentData()
-
+    def _show_format_examples(self):
+        """Show examples of the supported formats."""
         example_dialog = QMessageBox(self)
-        example_dialog.setWindowTitle("Format Example")
+        example_dialog.setWindowTitle("Format Examples")
+        example_dialog.setText("Supported Format Examples")
 
-        if format_type == "standard":
-            example_dialog.setText("Standard Format Example:")
-            example_dialog.setDetailedText("""#### Introduction (2 minutes)
+        custom_format = """Video Highlight Reel Outline
+Segment 1: Opening Hook - AI Hallucinations in Action (01:30)
+**STARTING TIMESTAMP:** 00:16:30 **CONTENT DESCRIPTION:** Start with the most surprising discovery from our week: AI confidently making up contractor reviews that don't exist.
+
+Segment 2: Daily News Update Automation (01:45)
+**STARTING TIMESTAMP:** 00:02:30 **CONTENT DESCRIPTION:** Follow Netta's journey debugging the automated news email system.
+"""
+
+        standard_format = """#### Introduction (2 minutes)
 STARTING TIMESTAMP: 00:01:30
 - This is the introduction section
 - It contains bullet points for content
@@ -510,21 +420,24 @@ STARTING TIMESTAMP: 00:01:30
 STARTING TIMESTAMP: 00:15:45
 - Here's the main content
 - With multiple points to cover
+"""
 
-#### Conclusion (1 minute)
-STARTING TIMESTAMP: 00:45:20
-- Wrap-up and summary
-- Final thoughts""")
-        else:
-            example_dialog.setText("Custom Format Example:")
-            example_dialog.setDetailedText("""## Opening Hook -- The AI Rollercoaster: 01:30
-🔹 **STARTING TIMESTAMP:** 00:02:45
-🔹 **CONTENT DESCRIPTION:** Start with the moment where we set expectations about connecting services with "magical AI bridges" contrasted immediately with what actually happened.
+        simple_format = """SEGMENT: Opening Segment
+TIME: 00:01:30
+DURATION: 2 minutes
+This is the opening segment description.
 
-## Make Workflow Magic -- Connecting Without Coding: 02:00
-🔹 **STARTING TIMESTAMP:** 00:03:15
-🔹 **CONTENT DESCRIPTION:** Showcase the exploration of Make's interface as we connect Salesforce to email systems.""")
+SEGMENT: Main Segment
+TIME: 00:15:45
+DURATION: 3 minutes
+This is the main segment description.
+"""
 
+        example_text = f"1. Custom Format (recommended):\n\n{custom_format}\n\n"
+        example_text += f"2. Standard Format:\n\n{standard_format}\n\n"
+        example_text += f"3. Simple Format:\n\n{simple_format}"
+
+        example_dialog.setDetailedText(example_text)
         example_dialog.exec()
 
     def _select_video(self):
@@ -579,20 +492,19 @@ STARTING TIMESTAMP: 00:45:20
 
             content = self.content_editor.toPlainText()
             output_dir = self.output_card.file_label.text()
-            format_type = self.format_selector.currentData()
 
             # Use a timer to allow the UI to update before starting processing
-            QTimer.singleShot(100, lambda: self._execute_processing(content, output_dir, format_type))
+            QTimer.singleShot(100, lambda: self._execute_processing(content, output_dir))
 
         except Exception as e:
             self._reset_ui()
             self.log_output.append(f"\n❌ Error setting up processing: {str(e)}")
 
-    def _execute_processing(self, content, output_dir, format_type):
+    def _execute_processing(self, content, output_dir):
         """Execute the actual highlight reel processing (called by timer)"""
         try:
             # Start worker thread
-            self.worker = WorkerThread(self.video_path, content, output_dir, format_type)
+            self.worker = WorkerThread(self.video_path, content, output_dir)
             self.worker.update_progress.connect(self.update_progress)
             self.worker.finished.connect(self.process_finished)
             self.worker.start()
