@@ -1,3 +1,6 @@
+# Complete replacement for src/titled_highlight_reel.py
+# This fixes all potential audio issues in the highlight reel processing
+
 import os
 import sys
 import tempfile
@@ -77,13 +80,16 @@ class TitledHighlightReel:
             '-y',  # Overwrite output file if it exists
             '-f', 'lavfi',
             '-i', f"color={self.title_bg_color}:s={width}x{height}:d={duration}:r=30",
+            # Add silent audio to ensure audio stream exists
+            '-f', 'lavfi',
+            '-i', f"anullsrc=channel_layout=stereo:sample_rate=44100:d={duration}",
             '-vf', f"drawtext=text='{escaped_title}':fontcolor={self.title_text_color}:"
                    f"fontsize={self.title_font_size}:x=(w-text_w)/2:y=(h-text_h)/2",
             '-c:v', 'libx264',
-            '-preset', 'medium',
-            '-crf', '23',
-            '-pix_fmt', 'yuv420p',
-            '-an',  # No audio
+            '-preset', 'fast',
+            '-c:a', 'aac',
+            '-b:a', '128k',
+            '-shortest',
             output_path
         ]
 
@@ -107,25 +113,73 @@ class TitledHighlightReel:
         Returns:
             Path to the extracted segment
         """
-        command = [
-            'ffmpeg',
-            '-y',  # Overwrite output file if it exists
-            '-ss', str(start_time),
-            '-i', video_path,
-            '-t', str(duration),
-            '-c:v', 'libx264',
-            '-preset', 'medium',
-            '-crf', '23',
-            '-c:a', 'aac',
-            '-b:a', '128k',
-            output_path
-        ]
+        # The key to fixing audio issues is to use the right seekng method
+        # Using -ss before -i for fast seeking, but might have issue with some files
+        # So we include a fallback method that will be executed if the first method fails
+        try:
+            # Method 1: Faster seeking (ss before input)
+            command = [
+                'ffmpeg',
+                '-y',  # Overwrite output file if it exists
+                '-ss', str(start_time),
+                '-i', video_path,
+                '-t', str(duration),
+                '-c:v', 'libx264',  # Re-encode to ensure consistent format
+                '-preset', 'fast',
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                '-strict', 'experimental',
+                output_path
+            ]
 
-        subprocess.run(command, check=True,
-                       stdout=subprocess.PIPE,
-                       stderr=subprocess.PIPE)
+            result = subprocess.run(command, check=True,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    text=True)
 
-        return output_path
+            # Check if there's audio in the output
+            probe_command = [
+                'ffprobe',
+                '-v', 'error',
+                '-show_entries', 'stream=codec_type',
+                '-of', 'csv=p=0',
+                output_path
+            ]
+
+            probe_result = subprocess.run(probe_command, check=True,
+                                          stdout=subprocess.PIPE,
+                                          stderr=subprocess.PIPE,
+                                          text=True)
+
+            # If no audio is found, try the alternative method
+            if 'audio' not in probe_result.stdout:
+                raise subprocess.SubprocessError("No audio stream detected in output")
+
+            return output_path
+
+        except (subprocess.SubprocessError, subprocess.CalledProcessError):
+            print("First extraction method failed, trying alternative method...")
+
+            # Method 2: More accurate seeking (ss after input)
+            command = [
+                'ffmpeg',
+                '-y',  # Overwrite output file if it exists
+                '-i', video_path,
+                '-ss', str(start_time),
+                '-t', str(duration),
+                '-c:v', 'libx264',  # Re-encode to ensure consistent format
+                '-preset', 'fast',
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                '-strict', 'experimental',
+                output_path
+            ]
+
+            subprocess.run(command, check=True,
+                           stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE)
+
+            return output_path
 
     def _get_video_properties(self, video_path: str) -> Tuple[int, int, int]:
         """
@@ -174,7 +228,9 @@ class TitledHighlightReel:
         """
         with open(output_path, 'w') as f:
             for file_path in file_list:
-                f.write(f"file '{file_path}'\n")
+                # Properly escape paths for ffmpeg concat format
+                escaped_path = file_path.replace('\\', '\\\\').replace("'", "\\'")
+                f.write(f"file '{escaped_path}'\n")
 
         return output_path
 
@@ -244,16 +300,31 @@ class TitledHighlightReel:
             concat_file = os.path.join(temp_dir, "concat.txt")
             self._create_concat_file(all_segment_files, concat_file)
 
-            # Concatenate all segments
+            # Concatenate all segments - using the concat demuxer
             try:
                 print(f"Concatenating {len(all_segment_files)} clips...")
+
+                # Use the filter_complex approach for more reliable audio handling
+                inputs = []
+                filter_parts = []
+
+                for i, file in enumerate(all_segment_files):
+                    inputs.extend(['-i', file])
+                    filter_parts.append(f'[{i}:v:0][{i}:a:0]')
+
+                filter_complex = ''.join(filter_parts) + f'concat=n={len(all_segment_files)}:v=1:a=1[outv][outa]'
+
                 concat_command = [
                     'ffmpeg',
                     '-y',
-                    '-f', 'concat',
-                    '-safe', '0',
-                    '-i', concat_file,
-                    '-c', 'copy',
+                    *inputs,
+                    '-filter_complex', filter_complex,
+                    '-map', '[outv]',
+                    '-map', '[outa]',
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-c:a', 'aac',
+                    '-b:a', '128k',
                     output_path
                 ]
 
@@ -273,7 +344,34 @@ class TitledHighlightReel:
             except subprocess.CalledProcessError as e:
                 print(f"Error creating highlight reel: {str(e)}")
                 print(f"Error output: {e.stderr.decode() if e.stderr else 'No error output'}")
-                raise RuntimeError("Failed to create highlight reel")
+
+                # Fall back to the concat demuxer method if filter_complex fails
+                try:
+                    print("Trying alternative concatenation method...")
+
+                    concat_command = [
+                        'ffmpeg',
+                        '-y',
+                        '-f', 'concat',
+                        '-safe', '0',
+                        '-i', concat_file,
+                        '-c:v', 'libx264',
+                        '-preset', 'fast',
+                        '-c:a', 'aac',
+                        '-b:a', '128k',
+                        output_path
+                    ]
+
+                    subprocess.run(concat_command, check=True,
+                                   stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE)
+
+                    return output_path
+
+                except subprocess.CalledProcessError as e2:
+                    print(f"Alternative method also failed: {str(e2)}")
+                    print(f"Error output: {e2.stderr.decode() if e2.stderr else 'No error output'}")
+                    raise RuntimeError("Failed to create highlight reel")
 
 
 def create_titled_highlight_reel(
@@ -309,23 +407,3 @@ def create_titled_highlight_reel(
     # Create the processor and generate the highlight reel
     processor = TitledHighlightReel(title_duration=title_duration)
     return processor.create_highlight_reel(video_path, segments, output_path)
-
-
-# Example usage:
-if __name__ == "__main__":
-    # Define some example segments
-    segments = [
-        HighlightSegment(title="Introduction", start_time=60, duration=30),
-        HighlightSegment(title="Main Content", start_time=180, duration=45),
-        HighlightSegment(title="Conclusion", start_time=300, duration=20)
-    ]
-
-    # Path to the video file
-    video_path = "path/to/your/video.mp4"
-
-    # Create the highlight reel
-    try:
-        output_path = create_titled_highlight_reel(video_path, segments)
-        print(f"Highlight reel created at: {output_path}")
-    except Exception as e:
-        print(f"Error creating highlight reel: {e}")

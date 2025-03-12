@@ -1,9 +1,91 @@
-import re
+
 import os
-from typing import List
+import re
+import ffmpeg
+import tempfile
+from typing import List, Tuple
 from dataclasses import dataclass
 from datetime import timedelta
-from src.utils import validate_timestamps
+from .utils import validate_timestamps
+
+
+def create_highlight_reel(video_path: str, segments: List[VideoSegment], output_path: str) -> str:
+    """
+    Create a highlight reel by concatenating multiple video segments.
+
+    Args:
+        video_path: Path to the source video file
+        segments: List of VideoSegment objects defining which parts to include
+        output_path: Path where the highlight reel should be saved
+
+    Returns:
+        Path to the created highlight reel video
+    """
+    if not os.path.exists(video_path):
+        raise FileNotFoundError(f"Video file not found: {video_path}")
+
+    # Create temp directory for segment files
+    with tempfile.TemporaryDirectory() as temp_dir:
+        segment_files = []
+
+        # Extract each segment individually
+        for i, segment in enumerate(segments):
+            validate_timestamps([segment.start_time])
+            if segment.duration <= 0:
+                raise ValueError(f"Duration must be positive for segment {i + 1}")
+
+            # Create a temporary file for this segment
+            segment_filename = f"segment_{i + 1:03d}.mp4"
+            segment_path = os.path.join(temp_dir, segment_filename)
+            segment_files.append(segment_path)
+
+            # Extract the segment using ffmpeg
+            print(
+                f"Extracting segment {i + 1}: {segment.title} (Start: {timedelta(seconds=segment.start_time)}, Duration: {timedelta(seconds=segment.duration)})")
+
+            try:
+                # Fix: Use copy codecs for both audio and video
+                stream = ffmpeg.input(video_path, ss=segment.start_time, t=segment.duration)
+                stream = ffmpeg.output(stream, segment_path, c='copy')  # Use copy for both audio and video
+                ffmpeg.run(stream, overwrite_output=True, capture_stdout=True, capture_stderr=True)
+            except ffmpeg.Error as e:
+                print('stdout:', e.stdout.decode('utf8'))
+                print('stderr:', e.stderr.decode('utf8'))
+                raise RuntimeError(f"Error extracting segment {i + 1}: {str(e)}")
+
+            print(f"Successfully extracted segment {i + 1}")
+
+        # Create list file for concatenation
+        list_file_path = os.path.join(temp_dir, "segments.txt")
+        with open(list_file_path, 'w') as list_file:
+            for segment_path in segment_files:
+                # Fix: Use proper ffmpeg concat format with escaped paths
+                escaped_path = segment_path.replace('\\', '\\\\').replace("'", "\\'")
+                list_file.write(f"file '{escaped_path}'\n")
+
+        # Create output directory if it doesn't exist
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+        # Concatenate all segments using the concat demuxer
+        try:
+            print(f"Concatenating {len(segment_files)} segments into highlight reel...")
+
+            # Fix: Use the right concat options for both audio and video
+            concat = ffmpeg.input(list_file_path, format='concat', safe=0)
+            concat = ffmpeg.output(concat, output_path, c='copy')  # Use copy for both audio and video
+            ffmpeg.run(concat, overwrite_output=True, capture_stdout=True, capture_stderr=True)
+
+            total_duration = sum(segment.duration for segment in segments)
+            print(f"Highlight reel created successfully!")
+            print(f"Output: {output_path}")
+            print(f"Total duration: {timedelta(seconds=total_duration)}")
+
+            return output_path
+
+        except ffmpeg.Error as e:
+            print('stdout:', e.stdout.decode('utf8'))
+            print('stderr:', e.stderr.decode('utf8'))
+            raise RuntimeError(f"Error creating highlight reel: {str(e)}")
 
 
 @dataclass
