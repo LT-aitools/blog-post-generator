@@ -231,7 +231,7 @@ class HighlightReelUI(QMainWindow):
         # Separator
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setFrameShadow(QFrame.Shape.Sunken)
         separator.setStyleSheet("background-color: #e0e0e0;")
         main_layout.addWidget(separator)
 
@@ -253,6 +253,7 @@ class HighlightReelUI(QMainWindow):
         section_label.setFont(section_font)
         main_layout.addWidget(section_label)
 
+        # Format help card
         format_card = QFrame()
         format_card.setFrameShape(QFrame.Shape.StyledPanel)
         format_card.setStyleSheet("""
@@ -265,7 +266,7 @@ class HighlightReelUI(QMainWindow):
         format_layout = QVBoxLayout(format_card)
 
         # Format help header
-        format_header = QLabel("Format Information")
+        format_header = QLabel("Paste Format Information")
         format_header_font = format_header.font()
         format_header_font.setBold(True)
         format_header.setFont(format_header_font)
@@ -275,24 +276,29 @@ class HighlightReelUI(QMainWindow):
         format_selector_layout = QHBoxLayout()
 
         self.format_help_label = QLabel(
-            "Enter your highlight reel specification using one of the supported formats:"
+            "You can quickly create segments by pasting text in the following format:"
         )
         self.format_help_label.setWordWrap(True)
         self.format_help_label.setStyleSheet("color: #666666; padding: 5px;")
         format_layout.addWidget(self.format_help_label)
 
-        # Add format details
+        # Add format details for paste format
         self.format_details = QLabel(
-            "• Standard Format with #### headers and STARTING TIMESTAMP: fields\n"
-            "• Simple Format with SEGMENT:, TIME:, and DURATION: markers\n"
-            "• Custom Format with 'Segment X:' titles and **STARTING TIMESTAMP:** markers"
+            "Segment X: Title (MM:SS) **STARTING TIMESTAMP:** HH:MM:SS **CONTENT DESCRIPTION:** Description"
         )
-        self.format_details.setStyleSheet("color: #333333; padding: 5px;")
+        self.format_details.setStyleSheet("color: #333333; padding: 5px; font-family: monospace;")
         format_layout.addWidget(self.format_details)
 
-        self.show_example_button = StyledButton("Show Examples")
-        self.show_example_button.setMinimumWidth(120)
-        self.show_example_button.clicked.connect(self._show_format_examples)
+        # Add example format button
+        self.insert_example_button = StyledButton("Insert Example Format")
+        self.insert_example_button.setMinimumWidth(160)
+        self.insert_example_button.clicked.connect(self._insert_paste_example)
+
+        self.show_example_button = StyledButton("Show Format Help")
+        self.show_example_button.setMinimumWidth(160)
+        self.show_example_button.clicked.connect(self._show_format_help)
+
+        format_selector_layout.addWidget(self.insert_example_button)
         format_selector_layout.addWidget(self.show_example_button)
         format_selector_layout.addStretch()
         format_layout.addLayout(format_selector_layout)
@@ -321,10 +327,10 @@ class HighlightReelUI(QMainWindow):
 
         # Set placeholder text for the content editor
         self.content_editor.setPlaceholderText(
-            "Enter your highlight reel specification here...\n\n"
-            "Example custom format:\n"
-            "Segment 1: Opening Hook - AI Hallucinations in Action (01:30)\n"
-            "**STARTING TIMESTAMP:** 00:16:30 **CONTENT DESCRIPTION:** Start with the most surprising discovery..."
+            "Paste your segments here in the format:\n\n"
+            "Segment 1: Title (MM:SS) **STARTING TIMESTAMP:** HH:MM:SS **CONTENT DESCRIPTION:** Description\n\n"
+            "Segment 2: Title (MM:SS) **STARTING TIMESTAMP:** HH:MM:SS **CONTENT DESCRIPTION:** Description\n\n"
+            "Click 'Insert Example Format' to add a working example."
         )
 
         # Add output directory section - Make section header more visible
@@ -396,6 +402,48 @@ class HighlightReelUI(QMainWindow):
         # Show initial instructions
         self.log_output.append("Welcome to the Highlight Reel Creator!")
         self.log_output.append("Select your video file and enter segment specifications to begin.")
+
+    def _show_format_help(self):
+        """Show a detailed help dialog about the paste format"""
+        help_dialog = QMessageBox(self)
+        help_dialog.setWindowTitle("Paste Format Help")
+        help_dialog.setIcon(QMessageBox.Icon.Information)
+        help_dialog.setText("How to Format Your Segments")
+
+        help_text = (
+            "Each segment should follow this format:\n\n"
+            "Segment X: Title (MM:SS) **STARTING TIMESTAMP:** HH:MM:SS **CONTENT DESCRIPTION:** Description\n\n"
+            "- Segment X: Starts each segment (X is the segment number)\n"
+            "- Title: The title shown in the title card\n"
+            "- (MM:SS): Duration in minutes:seconds format\n"
+            "- **STARTING TIMESTAMP:** HH:MM:SS: Start time in the video\n"
+            "- **CONTENT DESCRIPTION:** Description: Optional description\n\n"
+            "You can paste multiple segments one after another."
+        )
+
+        help_dialog.setInformativeText(help_text)
+
+        example = (
+            "Segment 1: Opening Hook (01:30) **STARTING TIMESTAMP:** 00:05:30 "
+            "**CONTENT DESCRIPTION:** This segment introduces the main topic.\n\n"
+            "Segment 2: Main Content (02:15) **STARTING TIMESTAMP:** 00:12:45 "
+            "**CONTENT DESCRIPTION:** Detailed explanation of concepts."
+        )
+
+        help_dialog.setDetailedText(example)
+        help_dialog.exec()
+
+    def _insert_paste_example(self):
+        """Insert an example of the paste format into the content editor"""
+        example_text = """Segment 1: Opening Hook (01:30) **STARTING TIMESTAMP:** 00:05:30 **CONTENT DESCRIPTION:** This segment introduces the main topic with a compelling hook that draws the viewer in.
+
+Segment 2: Main Content Explanation (02:15) **STARTING TIMESTAMP:** 00:12:45 **CONTENT DESCRIPTION:** Detailed explanation of the core concepts with clear examples and visuals.
+
+Segment 3: Key Insight (01:00) **STARTING TIMESTAMP:** 00:25:10 **CONTENT DESCRIPTION:** The most important takeaway that viewers should remember."""
+
+        self.content_editor.setPlainText(example_text)
+        QMessageBox.information(self, "Format Example",
+                                "An example format has been inserted into the editor. You can modify it with your own segment details.")
 
     def _show_format_examples(self):
         """Show examples of the supported formats."""

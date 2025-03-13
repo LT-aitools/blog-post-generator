@@ -1,32 +1,23 @@
 import sys
 import os
-import json
-import subprocess
-from datetime import timedelta
+import re
 from pathlib import Path
 
-# Add project root to path - this is crucial for imports to work correctly
+# Add project root to path
 current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.insert(0, str(project_root))
 
-# Import the highlight reel processor - note we're using src. prefix
-from src.titled_highlight_reel import HighlightSegment, create_titled_highlight_reel
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QPushButton, QLabel,
+                             QVBoxLayout, QHBoxLayout, QWidget, QFileDialog,
+                             QTextEdit, QProgressBar, QFrame, QScrollArea,
+                             QComboBox, QCheckBox, QMessageBox)
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSize
+from PyQt6.QtGui import QFont, QIcon, QPalette, QColor
 
-# Try importing PyQt6, provide helpful error if not installed
-try:
-    from PyQt6.QtWidgets import (QApplication, QMainWindow, QPushButton, QLabel,
-                                 QVBoxLayout, QHBoxLayout, QWidget, QFileDialog,
-                                 QTextEdit, QProgressBar, QFrame, QScrollArea,
-                                 QLineEdit, QSpinBox, QTableWidget, QTableWidgetItem,
-                                 QHeaderView, QMessageBox, QDialog, QFormLayout)
-    from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSize
-    from PyQt6.QtGui import QFont, QIcon
-except ImportError:
-    print("Error: PyQt6 is not installed. Please install it with:")
-    print("pip install PyQt6")
-    sys.exit(1)
-
+# Import the base highlight reel extractor (no title cards)
+from src.highlight_reel_extractor import VideoSegment, extract_segments_from_text
+from src.highlight_reel_extractor import create_highlight_reel
 
 class StyledButton(QPushButton):
     """Custom styled button with modern appearance"""
@@ -36,7 +27,7 @@ class StyledButton(QPushButton):
         self.setMinimumHeight(36)
         font = self.font()
         font.setPointSize(10)
-        font.setBold(True)
+        font.setBold(True)  # Make text bold
         self.setFont(font)
 
         if primary:
@@ -47,6 +38,7 @@ class StyledButton(QPushButton):
                     border: none;
                     border-radius: 4px;
                     padding: 8px 16px;
+                    font-weight: bold;
                 }
                 QPushButton:hover {
                     background-color: #3a76d8;
@@ -62,17 +54,19 @@ class StyledButton(QPushButton):
         else:
             self.setStyleSheet("""
                 QPushButton {
-                    background-color: #f0f0f0;
+                    background-color: #e0e0e0;
                     color: #333333;
-                    border: 1px solid #cccccc;
+                    border: 1px solid #aaaaaa;
                     border-radius: 4px;
                     padding: 8px 16px;
+                    font-weight: bold;
                 }
                 QPushButton:hover {
-                    background-color: #e0e0e0;
+                    background-color: #d0d0d0;
+                    border: 1px solid #888888;
                 }
                 QPushButton:pressed {
-                    background-color: #d0d0d0;
+                    background-color: #c0c0c0;
                 }
             """)
 
@@ -118,6 +112,7 @@ class FileSelectionCard(QFrame):
         status_layout.addWidget(self.file_label, 1)
 
         self.select_button = StyledButton(select_text)
+        self.select_button.setMinimumWidth(120)  # Make buttons wider
         status_layout.addWidget(self.select_button)
 
         layout.addLayout(status_layout)
@@ -132,133 +127,51 @@ class FileSelectionCard(QFrame):
             self.file_label.setStyleSheet("color: #777777;")
 
 
-class SegmentDialog(QDialog):
-    """Dialog for adding or editing a segment"""
-
-    def __init__(self, parent=None, segment=None):
-        super().__init__(parent)
-        self.setWindowTitle("Segment Details")
-        self.setMinimumWidth(400)
-
-        layout = QFormLayout(self)
-
-        # Title field
-        self.title_input = QLineEdit()
-        if segment:
-            self.title_input.setText(segment.title)
-        layout.addRow("Title:", self.title_input)
-
-        # Start time field
-        self.start_time_input = QLineEdit()
-        if segment:
-            hours = segment.start_time // 3600
-            minutes = (segment.start_time % 3600) // 60
-            seconds = segment.start_time % 60
-            self.start_time_input.setText(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
-        layout.addRow("Start Time (HH:MM:SS):", self.start_time_input)
-
-        # Duration field
-        self.duration_input = QLineEdit()
-        if segment:
-            minutes = segment.duration // 60
-            seconds = segment.duration % 60
-            self.duration_input.setText(f"{minutes:02d}:{seconds:02d}")
-        layout.addRow("Duration (MM:SS):", self.duration_input)
-
-        # Help text
-        help_text = QLabel("Format examples: '01:30:45' for 1h 30m 45s or '05:30' for 5m 30s")
-        help_text.setStyleSheet("color: #777777; font-style: italic;")
-        layout.addRow("", help_text)
-
-        # Buttons
-        button_layout = QHBoxLayout()
-        self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.clicked.connect(self.reject)
-
-        self.save_button = StyledButton("Save", primary=True)
-        self.save_button.clicked.connect(self.accept)
-
-        button_layout.addWidget(self.cancel_button)
-        button_layout.addWidget(self.save_button)
-        layout.addRow("", button_layout)
-
-    def get_segment(self):
-        """Get the HighlightSegment from the dialog data"""
-        try:
-            title = self.title_input.text().strip()
-            if not title:
-                raise ValueError("Title cannot be empty")
-
-            # Parse start time
-            start_time_parts = self.start_time_input.text().strip().split(':')
-            if len(start_time_parts) == 3:
-                hours, minutes, seconds = map(int, start_time_parts)
-                start_time = hours * 3600 + minutes * 60 + seconds
-            elif len(start_time_parts) == 2:
-                minutes, seconds = map(int, start_time_parts)
-                start_time = minutes * 60 + seconds
-            else:
-                raise ValueError("Invalid start time format")
-
-            # Parse duration
-            duration_parts = self.duration_input.text().strip().split(':')
-            if len(duration_parts) == 2:
-                minutes, seconds = map(int, duration_parts)
-                duration = minutes * 60 + seconds
-            elif len(duration_parts) == 3:
-                hours, minutes, seconds = map(int, duration_parts)
-                duration = hours * 3600 + minutes * 60 + seconds
-            else:
-                raise ValueError("Invalid duration format")
-
-            return HighlightSegment(
-                title=title,
-                start_time=start_time,
-                duration=duration
-            )
-        except Exception as e:
-            QMessageBox.warning(self, "Input Error", str(e))
-            return None
-
-
 class WorkerThread(QThread):
     """Worker thread for creating highlight reels without freezing the UI."""
     update_progress = pyqtSignal(str)
     finished = pyqtSignal(bool, str)
 
-    def __init__(self, video_path, segments, output_dir, title_duration):
+    def __init__(self, video_path, content, output_dir):
         super().__init__()
         self.video_path = video_path
-        self.segments = segments
+        self.content = content
         self.output_dir = output_dir
-        self.title_duration = title_duration
 
     def run(self):
         try:
-            self.update_progress.emit("Creating highlight reel...")
+            # Extract segments from content
+            self.update_progress.emit("Analyzing content for video segments...")
 
-            # Log the segments
-            for i, segment in enumerate(self.segments):
-                total_seconds = segment.start_time
-                h = total_seconds // 3600
-                m = (total_seconds % 3600) // 60
-                s = total_seconds % 60
+            # Use the extract_segments_from_text function
+            segments = extract_segments_from_text(self.content)
 
+            if not segments:
+                self.update_progress.emit("No valid segments found in the content.")
+                self.finished.emit(False, "No valid segments found.")
+                return
+
+            self.update_progress.emit(f"Found {len(segments)} segments to extract.")
+
+            # Log segment details
+            for i, segment in enumerate(segments):
                 self.update_progress.emit(
-                    f"Segment {i + 1}: {segment.title}\n"
-                    f"  Start: {h:02d}:{m:02d}:{s:02d}\n"
-                    f"  Duration: {segment.duration // 60:02d}:{segment.duration % 60:02d}"
+                    f"Segment {i + 1}: {segment.title} - "
+                    f"Start: {segment.start_time // 3600:02d}:{(segment.start_time % 3600) // 60:02d}:{segment.start_time % 60:02d}, "
+                    f"Duration: {segment.duration // 60:02d}:{segment.duration % 60:02d}"
                 )
 
-            output_path = create_titled_highlight_reel(
-                self.video_path,
-                self.segments,
-                self.output_dir,
-                self.title_duration
-            )
+            # Create output filename
+            video_filename = os.path.splitext(os.path.basename(self.video_path))[0]
+            output_filename = f"{video_filename}_highlight_reel.mp4"
+            output_path = os.path.join(self.output_dir, output_filename)
+
+            # Create highlight reel (directly using the base function without title cards)
+            self.update_progress.emit("Creating highlight reel (this may take a while)...")
+            output = create_highlight_reel(self.video_path, segments, output_path)
 
             self.update_progress.emit(f"Highlight reel created successfully!")
-            self.finished.emit(True, output_path)
+            self.finished.emit(True, output)
 
         except Exception as e:
             self.update_progress.emit(f"Error: {str(e)}")
@@ -266,13 +179,13 @@ class WorkerThread(QThread):
 
 
 class HighlightReelUI(QMainWindow):
-    """UI for creating highlight reels with title cards"""
+    """UI for creating highlight reels from content specifications without title cards."""
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Titled Highlight Reel Creator")
-        self.setMinimumWidth(800)
-        self.setMinimumHeight(700)
+        self.setWindowTitle("Highlight Reel Creator (No Title Cards)")
+        self.setMinimumWidth(700)
+        self.setMinimumHeight(600)
         self.setStyleSheet("""
             QMainWindow {
                 background-color: #f5f5f5;
@@ -280,10 +193,19 @@ class HighlightReelUI(QMainWindow):
             QLabel {
                 color: #333333;
             }
+            QComboBox {
+                min-height: 30px;
+                padding: 5px;
+                border: 1px solid #aaaaaa;
+                border-radius: 4px;
+                background-color: white;
+            }
+            QComboBox::drop-down {
+                border: 0px;
+                width: 25px;
+            }
         """)
         self.video_path = None
-        self.output_dir = os.path.join(os.getcwd(), "highlight_reels")
-        self.segments = []
         self.is_processing = False
 
         # Create central widget and layout
@@ -294,7 +216,7 @@ class HighlightReelUI(QMainWindow):
         main_layout.setSpacing(16)
 
         # Create header
-        header = QLabel("Titled Highlight Reel Creator")
+        header = QLabel("Highlight Reel Creator")
         header_font = header.font()
         header_font.setPointSize(16)
         header_font.setBold(True)
@@ -302,7 +224,7 @@ class HighlightReelUI(QMainWindow):
         main_layout.addWidget(header)
 
         # Description
-        description = QLabel("Create a highlight reel with title cards before each segment")
+        description = QLabel("Extract key moments from videos and create highlight reels (without title cards)")
         description.setStyleSheet("color: #666666;")
         main_layout.addWidget(description)
 
@@ -313,7 +235,7 @@ class HighlightReelUI(QMainWindow):
         separator.setStyleSheet("background-color: #e0e0e0;")
         main_layout.addWidget(separator)
 
-        # Create file selection area
+        # Create file selection area - Make section header more visible
         section_label = QLabel("1. Select your video")
         section_font = section_label.font()
         section_font.setBold(True)
@@ -326,88 +248,99 @@ class HighlightReelUI(QMainWindow):
         self.video_card.select_button.clicked.connect(self._select_video)
         main_layout.addWidget(self.video_card)
 
-        # Output directory
-        self.output_card = FileSelectionCard("Output Directory", select_text="Select Folder")
-        self.output_card.file_label.setText(self.output_dir)
-        self.output_card.select_button.clicked.connect(self._select_output_dir)
-        main_layout.addWidget(self.output_card)
-
-        # Title duration
-        title_duration_layout = QHBoxLayout()
-        title_duration_label = QLabel("Title Card Duration (seconds):")
-        self.title_duration_input = QSpinBox()
-        self.title_duration_input.setMinimum(1)
-        self.title_duration_input.setMaximum(10)
-        self.title_duration_input.setValue(2)
-        self.title_duration_input.setFixedWidth(80)
-        title_duration_layout.addWidget(title_duration_label)
-        title_duration_layout.addWidget(self.title_duration_input)
-        title_duration_layout.addStretch()
-        main_layout.addLayout(title_duration_layout)
-
-        # Segment section
-        section_label = QLabel("2. Define your segments")
+        # Format selection - Make section header more visible
+        section_label = QLabel("2. Enter segment details")
         section_label.setFont(section_font)
         main_layout.addWidget(section_label)
 
-        # Segments table
-        segments_frame = QFrame()
-        segments_frame.setFrameShape(QFrame.Shape.StyledPanel)
-        segments_frame.setStyleSheet("""
+        format_card = QFrame()
+        format_card.setFrameShape(QFrame.Shape.StyledPanel)
+        format_card.setStyleSheet("""
             QFrame {
                 background-color: white;
                 border: 1px solid #e0e0e0;
                 border-radius: 6px;
             }
         """)
-        segments_layout = QVBoxLayout(segments_frame)
+        format_layout = QVBoxLayout(format_card)
 
-        # Table
-        self.segments_table = QTableWidget(0, 3)
-        self.segments_table.setHorizontalHeaderLabels(["Title", "Start Time", "Duration"])
-        self.segments_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.segments_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.segments_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.segments_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        segments_layout.addWidget(self.segments_table)
+        # Format help header
+        format_header = QLabel("Format Information")
+        format_header_font = format_header.font()
+        format_header_font.setBold(True)
+        format_header.setFont(format_header_font)
+        format_layout.addWidget(format_header)
 
-        # Buttons for segments
-        segment_buttons_layout = QHBoxLayout()
-        self.add_segment_button = StyledButton("Add Segment")
-        self.add_segment_button.clicked.connect(self._add_segment)
+        # Format selector layout with example button
+        format_selector_layout = QHBoxLayout()
 
-        self.edit_segment_button = StyledButton("Edit Segment")
-        self.edit_segment_button.clicked.connect(self._edit_segment)
+        self.format_help_label = QLabel(
+            "Enter your highlight reel specification using one of the supported formats:"
+        )
+        self.format_help_label.setWordWrap(True)
+        self.format_help_label.setStyleSheet("color: #666666; padding: 5px;")
+        format_layout.addWidget(self.format_help_label)
 
-        self.remove_segment_button = StyledButton("Remove Segment")
-        self.remove_segment_button.clicked.connect(self._remove_segment)
+        # Add format details
+        self.format_details = QLabel(
+            "• Standard Format with #### headers and STARTING TIMESTAMP: fields\n"
+            "• Simple Format with SEGMENT:, TIME:, and DURATION: markers\n"
+            "• Custom Format with 'Segment X:' titles and **STARTING TIMESTAMP:** markers"
+        )
+        self.format_details.setStyleSheet("color: #333333; padding: 5px;")
+        format_layout.addWidget(self.format_details)
 
-        segment_buttons_layout.addWidget(self.add_segment_button)
-        segment_buttons_layout.addWidget(self.edit_segment_button)
-        segment_buttons_layout.addWidget(self.remove_segment_button)
-        segments_layout.addLayout(segment_buttons_layout)
+        self.show_example_button = StyledButton("Show Examples")
+        self.show_example_button.setMinimumWidth(120)
+        self.show_example_button.clicked.connect(self._show_format_examples)
+        format_selector_layout.addWidget(self.show_example_button)
+        format_selector_layout.addStretch()
+        format_layout.addLayout(format_selector_layout)
 
-        # Import/Export buttons
-        io_buttons_layout = QHBoxLayout()
-        self.import_button = StyledButton("Import JSON")
-        self.import_button.clicked.connect(self._import_segments)
+        main_layout.addWidget(format_card)
 
-        self.export_button = StyledButton("Export JSON")
-        self.export_button.clicked.connect(self._export_segments)
+        # Content editor
+        content_label = QLabel("Segment Specifications:")
+        content_label_font = content_label.font()
+        content_label_font.setBold(True)
+        content_label.setFont(content_label_font)
+        main_layout.addWidget(content_label)
 
-        io_buttons_layout.addWidget(self.import_button)
-        io_buttons_layout.addWidget(self.export_button)
-        segments_layout.addLayout(io_buttons_layout)
+        self.content_editor = QTextEdit()
+        self.content_editor.setMinimumHeight(180)
+        self.content_editor.setStyleSheet("""
+            QTextEdit {
+                background-color: white;
+                border: 1px solid #aaaaaa;
+                border-radius: 6px;
+                padding: 8px;
+            }
+        """)
+        self.content_editor.textChanged.connect(self._check_ready)
+        main_layout.addWidget(self.content_editor)
 
-        main_layout.addWidget(segments_frame)
+        # Set placeholder text for the content editor
+        self.content_editor.setPlaceholderText(
+            "Enter your highlight reel specification here...\n\n"
+            "Example custom format:\n"
+            "Segment 1: Opening Hook - AI Hallucinations in Action (01:30)\n"
+            "**STARTING TIMESTAMP:** 00:16:30 **CONTENT DESCRIPTION:** Start with the most surprising discovery..."
+        )
 
-        # Process button
-        section_label = QLabel("3. Create highlight reel")
+        # Add output directory section - Make section header more visible
+        section_label = QLabel("3. Select output location")
         section_label.setFont(section_font)
         main_layout.addWidget(section_label)
 
+        # Output directory card
+        self.output_card = FileSelectionCard("Output Directory", select_text="Select Folder")
+        self.output_card.file_label.setText(os.path.join(os.getcwd(), "highlight_reels"))
+        self.output_card.select_button.clicked.connect(self._select_output_dir)
+        main_layout.addWidget(self.output_card)
+
+        # Process button - Make it more prominent
         self.process_button = StyledButton("Create Highlight Reel", primary=True)
-        self.process_button.setMinimumHeight(50)
+        self.process_button.setMinimumHeight(50)  # Taller button
         self.process_button.setEnabled(False)
         self.process_button.clicked.connect(self._process_highlight_reel)
         main_layout.addWidget(self.process_button)
@@ -430,10 +363,18 @@ class HighlightReelUI(QMainWindow):
         """)
         main_layout.addWidget(self.progress_bar)
 
-        # Log output
+        # Create log output area with scroll - Make section header more visible
         section_label = QLabel("4. Results")
         section_label.setFont(section_font)
         main_layout.addWidget(section_label)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        log_container = QWidget()
+        log_layout = QVBoxLayout(log_container)
+        log_layout.setContentsMargins(0, 0, 0, 0)
 
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
@@ -441,18 +382,64 @@ class HighlightReelUI(QMainWindow):
         self.log_output.setStyleSheet("""
             QTextEdit {
                 background-color: white;
-                border: 1px solid #e0e0e0;
+                border: 1px solid #aaaaaa;
                 border-radius: 6px;
                 padding: 8px;
                 font-family: monospace;
             }
         """)
-        main_layout.addWidget(self.log_output)
+        log_layout.addWidget(self.log_output)
+
+        scroll.setWidget(log_container)
+        main_layout.addWidget(scroll)
 
         # Show initial instructions
-        self.log_output.append("Welcome to the Titled Highlight Reel Creator!")
-        self.log_output.append("Select your video file and define segments to begin.")
-        self.log_output.append("Each segment will begin with its title card, displayed for the specified duration.")
+        self.log_output.append("Welcome to the Highlight Reel Creator (No Title Cards)!")
+        self.log_output.append("This version creates highlight reels without title cards to preserve audio quality.")
+        self.log_output.append("Select your video file and enter segment specifications to begin.")
+
+    def _show_format_examples(self):
+        """Show examples of the supported formats."""
+        example_dialog = QMessageBox(self)
+        example_dialog.setWindowTitle("Format Examples")
+        example_dialog.setText("Supported Format Examples")
+
+        custom_format = """Video Highlight Reel Outline
+Segment 1: Opening Hook - AI Hallucinations in Action (01:30)
+**STARTING TIMESTAMP:** 00:16:30 **CONTENT DESCRIPTION:** Start with the most surprising discovery from our week: AI confidently making up contractor reviews that don't exist.
+
+Segment 2: Daily News Update Automation (01:45)
+**STARTING TIMESTAMP:** 00:02:30 **CONTENT DESCRIPTION:** Follow Netta's journey debugging the automated news email system.
+"""
+
+        standard_format = """#### Introduction (2 minutes)
+STARTING TIMESTAMP: 00:01:30
+- This is the introduction section
+- It contains bullet points for content
+
+#### Main Content (3 minutes)
+STARTING TIMESTAMP: 00:15:45
+- Here's the main content
+- With multiple points to cover
+"""
+
+        simple_format = """SEGMENT: Opening Segment
+TIME: 00:01:30
+DURATION: 2 minutes
+This is the opening segment description.
+
+SEGMENT: Main Segment
+TIME: 00:15:45
+DURATION: 3 minutes
+This is the main segment description.
+"""
+
+        example_text = f"1. Custom Format (recommended):\n\n{custom_format}\n\n"
+        example_text += f"2. Standard Format:\n\n{standard_format}\n\n"
+        example_text += f"3. Simple Format:\n\n{simple_format}"
+
+        example_dialog.setDetailedText(example_text)
+        example_dialog.exec()
 
     def _select_video(self):
         """Handle video selection."""
@@ -478,218 +465,53 @@ class HighlightReelUI(QMainWindow):
         )
 
         if dir_path:
-            self.output_dir = dir_path
-            self.output_card.set_file(dir_path)
+            self.output_card.file_label.setText(dir_path)
             self.log_output.append(f"Output directory: {dir_path}")
-
-    def _add_segment(self):
-        """Add a new segment."""
-        dialog = SegmentDialog(self)
-        if dialog.exec():
-            segment = dialog.get_segment()
-            if segment:
-                self.segments.append(segment)
-                self._update_segments_table()
-                self._check_ready()
-
-    def _edit_segment(self):
-        """Edit the selected segment."""
-        selected_rows = self.segments_table.selectedIndexes()
-        if not selected_rows:
-            QMessageBox.warning(self, "No Selection", "Please select a segment to edit.")
-            return
-
-        row = selected_rows[0].row()
-        dialog = SegmentDialog(self, self.segments[row])
-        if dialog.exec():
-            segment = dialog.get_segment()
-            if segment:
-                self.segments[row] = segment
-                self._update_segments_table()
-
-    def _remove_segment(self):
-        """Remove the selected segment."""
-        selected_rows = self.segments_table.selectedIndexes()
-        if not selected_rows:
-            QMessageBox.warning(self, "No Selection", "Please select a segment to remove.")
-            return
-
-        row = selected_rows[0].row()
-        self.segments.pop(row)
-        self._update_segments_table()
-        self._check_ready()
-
-    def _import_segments(self):
-        """Import segments from a JSON file."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Import Segments from JSON",
-            os.path.expanduser("~/Desktop"),
-            "JSON Files (*.json);;All Files (*.*)"
-        )
-
-        if not file_path:
-            return
-
-        try:
-            with open(file_path, 'r') as f:
-                segments_data = json.load(f)
-
-            # Clear existing segments
-            self.segments = []
-
-            # Add imported segments
-            for segment in segments_data:
-                if isinstance(segment, dict):
-                    title = segment.get('title', 'Untitled')
-
-                    # Parse start_time
-                    start_time = segment.get('start_time', 0)
-                    if isinstance(start_time, str):
-                        parts = start_time.split(':')
-                        if len(parts) == 3:
-                            hours, minutes, seconds = map(int, parts)
-                            start_time = hours * 3600 + minutes * 60 + seconds
-                        elif len(parts) == 2:
-                            minutes, seconds = map(int, parts)
-                            start_time = minutes * 60 + seconds
-
-                    # Parse duration
-                    duration = segment.get('duration', 30)
-                    if isinstance(duration, str):
-                        parts = duration.split(':')
-                        if len(parts) == 2:
-                            minutes, seconds = map(int, parts)
-                            duration = minutes * 60 + seconds
-                        elif len(parts) == 3:
-                            hours, minutes, seconds = map(int, parts)
-                            duration = hours * 3600 + minutes * 60 + seconds
-
-                    self.segments.append(HighlightSegment(
-                        title=title,
-                        start_time=start_time,
-                        duration=duration
-                    ))
-
-            self._update_segments_table()
-            self._check_ready()
-            self.log_output.append(f"Imported {len(self.segments)} segments from {os.path.basename(file_path)}")
-
-        except Exception as e:
-            QMessageBox.critical(self, "Import Error", f"Error importing segments: {str(e)}")
-
-    def _export_segments(self):
-        """Export segments to a JSON file."""
-        if not self.segments:
-            QMessageBox.warning(self, "No Segments", "There are no segments to export.")
-            return
-
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Export Segments to JSON",
-            os.path.expanduser("~/Desktop"),
-            "JSON Files (*.json);;All Files (*.*)"
-        )
-
-        if not file_path:
-            return
-
-        try:
-            # Convert segments to dictionaries
-            segments_data = []
-            for segment in self.segments:
-                # Format times as strings for better readability
-                start_h = segment.start_time // 3600
-                start_m = (segment.start_time % 3600) // 60
-                start_s = segment.start_time % 60
-                start_time_str = f"{start_h:02d}:{start_m:02d}:{start_s:02d}"
-
-                duration_m = segment.duration // 60
-                duration_s = segment.duration % 60
-                duration_str = f"{duration_m:02d}:{duration_s:02d}"
-
-                segments_data.append({
-                    'title': segment.title,
-                    'start_time': start_time_str,
-                    'duration': duration_str
-                })
-
-            with open(file_path, 'w') as f:
-                json.dump(segments_data, f, indent=2)
-
-            self.log_output.append(f"Exported {len(self.segments)} segments to {os.path.basename(file_path)}")
-
-        except Exception as e:
-            QMessageBox.critical(self, "Export Error", f"Error exporting segments: {str(e)}")
-
-    def _update_segments_table(self):
-        """Update the segments table with current segments."""
-        self.segments_table.setRowCount(0)
-
-        for segment in self.segments:
-            row = self.segments_table.rowCount()
-            self.segments_table.insertRow(row)
-
-            # Title
-            self.segments_table.setItem(row, 0, QTableWidgetItem(segment.title))
-
-            # Start Time (formatted as HH:MM:SS)
-            hours = segment.start_time // 3600
-            minutes = (segment.start_time % 3600) // 60
-            seconds = segment.start_time % 60
-            start_time_text = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-            self.segments_table.setItem(row, 1, QTableWidgetItem(start_time_text))
-
-            # Duration (formatted as MM:SS)
-            minutes = segment.duration // 60
-            seconds = segment.duration % 60
-            duration_text = f"{minutes:02d}:{seconds:02d}"
-            self.segments_table.setItem(row, 2, QTableWidgetItem(duration_text))
 
     def _check_ready(self):
         """Check if all conditions are met to enable the process button."""
         has_video = self.video_path is not None
-        has_segments = len(self.segments) > 0
-        self.process_button.setEnabled(has_video and has_segments and not self.is_processing)
+        has_content = len(self.content_editor.toPlainText().strip()) > 0
+        self.process_button.setEnabled(bool(has_video and has_content) and not self.is_processing)
 
     def _process_highlight_reel(self):
-        """Process the highlight reel."""
+        """Process the highlight reel with selected files and content."""
+        # Prevent multiple processing attempts
         if self.is_processing:
             return
 
-        if not self.video_path:
-            QMessageBox.warning(self, "No Video", "Please select a video file.")
-            return
-
-        if not self.segments:
-            QMessageBox.warning(self, "No Segments", "Please add at least one segment.")
-            return
-
         self.is_processing = True
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)  # Indeterminate progress
-        self.process_button.setEnabled(False)
 
-        # Clear log
-        self.log_output.clear()
-        self.log_output.append("Starting highlight reel creation...")
+        try:
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setRange(0, 0)  # Indeterminate progress
+            self.process_button.setEnabled(False)
+            self.log_output.append("\nProcessing highlight reel...")
 
-        # Get title duration
-        title_duration = self.title_duration_input.value()
+            # Change cursor to waiting
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
 
-        # Start worker thread
-        self.worker = WorkerThread(
-            self.video_path,
-            self.segments,
-            self.output_dir,
-            title_duration
-        )
-        self.worker.update_progress.connect(self.update_progress)
-        self.worker.finished.connect(self.process_finished)
-        self.worker.start()
+            content = self.content_editor.toPlainText()
+            output_dir = self.output_card.file_label.text()
 
-        # Change cursor to waiting
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            # Use a timer to allow the UI to update before starting processing
+            QTimer.singleShot(100, lambda: self._execute_processing(content, output_dir))
+
+        except Exception as e:
+            self._reset_ui()
+            self.log_output.append(f"\n❌ Error setting up processing: {str(e)}")
+
+    def _execute_processing(self, content, output_dir):
+        """Execute the actual highlight reel processing (called by timer)"""
+        try:
+            # Start worker thread
+            self.worker = WorkerThread(self.video_path, content, output_dir)
+            self.worker.update_progress.connect(self.update_progress)
+            self.worker.finished.connect(self.process_finished)
+            self.worker.start()
+        except Exception as e:
+            self.log_output.append(f"\n❌ Error: {str(e)}")
+            self._reset_ui()
 
     def update_progress(self, message):
         """Update progress message."""
@@ -701,37 +523,35 @@ class HighlightReelUI(QMainWindow):
 
     def process_finished(self, success, result):
         """Handle completion of the worker thread."""
+        if success:
+            self.log_output.append("\n✅ Highlight reel created successfully!")
+            self.log_output.append(f"Output saved to: {result}")
+
+            # Try to open output folder
+            try:
+                if sys.platform == "darwin":  # macOS
+                    os.system(f'open "{os.path.dirname(result)}"')
+                elif sys.platform == "win32":  # Windows
+                    os.startfile(os.path.dirname(result))
+                self.log_output.append("\nOpened output folder!")
+            except Exception:
+                self.log_output.append(f"\nOutput folder is at: {os.path.dirname(result)}")
+        else:
+            self.log_output.append("\n❌ Highlight reel creation failed!")
+            self.log_output.append(f"Error: {result}")
+
+        # Reset UI using a small delay to ensure everything completes
+        QTimer.singleShot(100, self._reset_ui)
+
+    def _reset_ui(self):
+        """Reset the UI after processing completes"""
         self.is_processing = False
         self.progress_bar.setVisible(False)
         self._check_ready()
         QApplication.restoreOverrideCursor()
 
-        if success:
-            self.log_output.append("\n✅ Highlight reel created successfully!")
-            self.log_output.append(f"Output saved to: {result}")
-
-            # Ask if user wants to open the output folder
-            reply = QMessageBox.question(
-                self,
-                "Highlight Reel Complete",
-                "Highlight reel created successfully. Open containing folder?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-
-            if reply == QMessageBox.StandardButton.Yes:
-                try:
-                    if sys.platform == "darwin":  # macOS
-                        os.system(f'open "{os.path.dirname(result)}"')
-                    elif sys.platform == "win32":  # Windows
-                        os.startfile(os.path.dirname(result))
-                    else:  # Linux
-                        subprocess.run(['xdg-open', os.path.dirname(result)])
-                except Exception as e:
-                    self.log_output.append(f"Error opening folder: {str(e)}")
-        else:
-            self.log_output.append("\n❌ Highlight reel creation failed!")
-            self.log_output.append(f"Error: {result}")
-            QMessageBox.critical(self, "Error", f"Failed to create highlight reel: {result}")
+        # Ensure we process any pending events
+        QApplication.processEvents()
 
 
 def main():

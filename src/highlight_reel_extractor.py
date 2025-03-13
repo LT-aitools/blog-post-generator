@@ -1,92 +1,11 @@
-
-import os
 import re
-import ffmpeg
-import tempfile
-from typing import List, Tuple
+import os
+import ffmpeg  # Add this
+import tempfile  # Add this
+from typing import List
 from dataclasses import dataclass
 from datetime import timedelta
-from .utils import validate_timestamps
-
-
-def create_highlight_reel(video_path: str, segments: List[VideoSegment], output_path: str) -> str:
-    """
-    Create a highlight reel by concatenating multiple video segments.
-
-    Args:
-        video_path: Path to the source video file
-        segments: List of VideoSegment objects defining which parts to include
-        output_path: Path where the highlight reel should be saved
-
-    Returns:
-        Path to the created highlight reel video
-    """
-    if not os.path.exists(video_path):
-        raise FileNotFoundError(f"Video file not found: {video_path}")
-
-    # Create temp directory for segment files
-    with tempfile.TemporaryDirectory() as temp_dir:
-        segment_files = []
-
-        # Extract each segment individually
-        for i, segment in enumerate(segments):
-            validate_timestamps([segment.start_time])
-            if segment.duration <= 0:
-                raise ValueError(f"Duration must be positive for segment {i + 1}")
-
-            # Create a temporary file for this segment
-            segment_filename = f"segment_{i + 1:03d}.mp4"
-            segment_path = os.path.join(temp_dir, segment_filename)
-            segment_files.append(segment_path)
-
-            # Extract the segment using ffmpeg
-            print(
-                f"Extracting segment {i + 1}: {segment.title} (Start: {timedelta(seconds=segment.start_time)}, Duration: {timedelta(seconds=segment.duration)})")
-
-            try:
-                # Fix: Use copy codecs for both audio and video
-                stream = ffmpeg.input(video_path, ss=segment.start_time, t=segment.duration)
-                stream = ffmpeg.output(stream, segment_path, c='copy')  # Use copy for both audio and video
-                ffmpeg.run(stream, overwrite_output=True, capture_stdout=True, capture_stderr=True)
-            except ffmpeg.Error as e:
-                print('stdout:', e.stdout.decode('utf8'))
-                print('stderr:', e.stderr.decode('utf8'))
-                raise RuntimeError(f"Error extracting segment {i + 1}: {str(e)}")
-
-            print(f"Successfully extracted segment {i + 1}")
-
-        # Create list file for concatenation
-        list_file_path = os.path.join(temp_dir, "segments.txt")
-        with open(list_file_path, 'w') as list_file:
-            for segment_path in segment_files:
-                # Fix: Use proper ffmpeg concat format with escaped paths
-                escaped_path = segment_path.replace('\\', '\\\\').replace("'", "\\'")
-                list_file.write(f"file '{escaped_path}'\n")
-
-        # Create output directory if it doesn't exist
-        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-
-        # Concatenate all segments using the concat demuxer
-        try:
-            print(f"Concatenating {len(segment_files)} segments into highlight reel...")
-
-            # Fix: Use the right concat options for both audio and video
-            concat = ffmpeg.input(list_file_path, format='concat', safe=0)
-            concat = ffmpeg.output(concat, output_path, c='copy')  # Use copy for both audio and video
-            ffmpeg.run(concat, overwrite_output=True, capture_stdout=True, capture_stderr=True)
-
-            total_duration = sum(segment.duration for segment in segments)
-            print(f"Highlight reel created successfully!")
-            print(f"Output: {output_path}")
-            print(f"Total duration: {timedelta(seconds=total_duration)}")
-
-            return output_path
-
-        except ffmpeg.Error as e:
-            print('stdout:', e.stdout.decode('utf8'))
-            print('stderr:', e.stderr.decode('utf8'))
-            raise RuntimeError(f"Error creating highlight reel: {str(e)}")
-
+from src.utils import validate_timestamps
 
 @dataclass
 class VideoSegment:
@@ -159,25 +78,91 @@ def parse_duration(duration_str: str) -> int:
     return minutes * 60 + seconds
 
 
+def parse_pasted_segments(text_content: str) -> List[VideoSegment]:
+    """
+    Parse segments from a pasted text in the format:
+    Segment 1: [Title] ([duration]) **STARTING TIMESTAMP:** [HH:MM:SS] **CONTENT DESCRIPTION:** [Description]
+
+    Args:
+        text_content: The pasted text content
+
+    Returns:
+        List of VideoSegment objects
+    """
+    segments = []
+
+    # Normalize line breaks and whitespace
+    text_content = text_content.replace('\r\n', '\n').replace('\r', '\n')
+
+    # Split by "Segment X:" pattern to get individual segment texts
+    segment_pattern = r'Segment\s+\d+:\s+'
+    segment_texts = re.split(segment_pattern, text_content)
+
+    # Skip the first split result if it's empty (usually the case)
+    if segment_texts and not segment_texts[0].strip():
+        segment_texts = segment_texts[1:]
+
+    print(f"Found {len(segment_texts)} segment texts to parse")
+
+    for i, segment_text in enumerate(segment_texts):
+        try:
+            # Extract title and duration
+            title_duration_pattern = r'(.+?)\s*\(([^)]+)\)'
+            title_match = re.search(title_duration_pattern, segment_text)
+
+            if not title_match:
+                print(f"No title/duration match in segment {i + 1}")
+                continue
+
+            title = title_match.group(1).strip()
+            duration_str = title_match.group(2).strip()
+
+            # Extract timestamp
+            timestamp_pattern = r'\*\*STARTING TIMESTAMP:\*\*\s*(\d+:\d+:\d+)'
+            timestamp_match = re.search(timestamp_pattern, segment_text)
+
+            if not timestamp_match:
+                print(f"No timestamp match in segment {i + 1}")
+                continue
+
+            timestamp_str = timestamp_match.group(1).strip()
+
+            # Extract description (optional)
+            description = ""
+            desc_pattern = r'\*\*CONTENT DESCRIPTION:\*\*\s*(.+?)(?=Segment\s+\d+:|$)'
+            desc_match = re.search(desc_pattern, segment_text, re.DOTALL)
+
+            if desc_match:
+                description = desc_match.group(1).strip()
+
+            # Parse duration and timestamp
+            try:
+                duration = parse_duration(duration_str)
+                start_time = parse_timestamp(timestamp_str)
+
+                # Create segment
+                segments.append(VideoSegment(
+                    start_time=start_time,
+                    duration=duration,
+                    title=title,
+                    description=description
+                ))
+
+                print(f"Parsed segment {i + 1}: {title}, start={timestamp_str}, duration={duration_str}")
+
+            except Exception as e:
+                print(f"Error parsing values for segment {i + 1}: {str(e)}")
+
+        except Exception as e:
+            print(f"Error processing segment {i + 1}: {str(e)}")
+
+    return segments
+
+
 def extract_segments_from_text(text_content: str) -> List[VideoSegment]:
     """
     Extract video segment information from a text file.
-    Supports multiple formats:
-
-    1. Standard Format with #### headers:
-        #### Segment Title (2 minutes)
-        STARTING TIMESTAMP: 00:01:30
-        Description text...
-
-    2. Simple Format with SEGMENT/TIME/DURATION markers:
-        SEGMENT: Title
-        TIME: 00:01:30
-        DURATION: 2 minutes
-        Description text...
-
-    3. Custom Format with Segment X: markers:
-        Segment 1: Title (01:30)
-        **STARTING TIMESTAMP:** 00:16:30 **CONTENT DESCRIPTION:** Description...
+    Supports multiple formats including the new pasted segment format.
 
     Args:
         text_content: Content of the text file with segment specifications
@@ -185,10 +170,15 @@ def extract_segments_from_text(text_content: str) -> List[VideoSegment]:
     Returns:
         List of VideoSegment objects
     """
-    segments = []
-
     # Print first 200 chars to help with debugging
     print(f"Analyzing text content (first 200 chars): {text_content[:200]}...")
+
+    # Check if we have the standard "Segment X:" format with STARTING TIMESTAMP
+    if "Segment" in text_content and "**STARTING TIMESTAMP:**" in text_content:
+        # This appears to be the pasted format - try the new parser first
+        segments = parse_pasted_segments(text_content)
+        if segments:
+            return segments
 
     # Check if we have the custom format with "Segment X:" pattern
     if re.search(r'Segment \d+:', text_content):
@@ -196,6 +186,7 @@ def extract_segments_from_text(text_content: str) -> List[VideoSegment]:
 
     # Try the original formats (simple format with distinct sections or markdown format)
     # Split content into lines
+    segments = []
     lines = text_content.splitlines()
     i = 0
 
@@ -438,3 +429,82 @@ def _extract_custom_segments(text_content: str) -> List[VideoSegment]:
 
     print(f"Total custom segments found: {len(segments)}")
     return segments
+
+
+def create_highlight_reel(video_path: str, segments: List[VideoSegment], output_path: str) -> str:
+    """
+    Create a highlight reel by concatenating multiple video segments.
+
+    Args:
+        video_path: Path to the source video file
+        segments: List of VideoSegment objects defining which parts to include
+        output_path: Path where the highlight reel should be saved
+
+    Returns:
+        Path to the created highlight reel video
+    """
+    if not os.path.exists(video_path):
+        raise FileNotFoundError(f"Video file not found: {video_path}")
+
+    # Create temp directory for segment files
+    with tempfile.TemporaryDirectory() as temp_dir:
+        segment_files = []
+
+        # Extract each segment individually
+        for i, segment in enumerate(segments):
+            validate_timestamps([segment.start_time])
+            if segment.duration <= 0:
+                raise ValueError(f"Duration must be positive for segment {i + 1}")
+
+            # Create a temporary file for this segment
+            segment_filename = f"segment_{i + 1:03d}.mp4"
+            segment_path = os.path.join(temp_dir, segment_filename)
+            segment_files.append(segment_path)
+
+            # Extract the segment using ffmpeg
+            print(
+                f"Extracting segment {i + 1}: {segment.title} (Start: {timedelta(seconds=segment.start_time)}, Duration: {timedelta(seconds=segment.duration)})")
+
+            try:
+                # Use copy codecs for both audio and video
+                stream = ffmpeg.input(video_path, ss=segment.start_time, t=segment.duration)
+                stream = ffmpeg.output(stream, segment_path, c='copy')  # Use copy for both audio and video
+                ffmpeg.run(stream, overwrite_output=True, capture_stdout=True, capture_stderr=True)
+            except ffmpeg.Error as e:
+                print('stdout:', e.stdout.decode('utf8'))
+                print('stderr:', e.stderr.decode('utf8'))
+                raise RuntimeError(f"Error extracting segment {i + 1}: {str(e)}")
+
+            print(f"Successfully extracted segment {i + 1}")
+
+        # Create list file for concatenation
+        list_file_path = os.path.join(temp_dir, "segments.txt")
+        with open(list_file_path, 'w') as list_file:
+            for segment_path in segment_files:
+                # Use proper ffmpeg concat format with escaped paths
+                escaped_path = segment_path.replace('\\', '\\\\').replace("'", "\\'")
+                list_file.write(f"file '{escaped_path}'\n")
+
+        # Create output directory if it doesn't exist
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+        # Concatenate all segments using the concat demuxer
+        try:
+            print(f"Concatenating {len(segment_files)} segments into highlight reel...")
+
+            # Use the right concat options for both audio and video
+            concat = ffmpeg.input(list_file_path, format='concat', safe=0)
+            concat = ffmpeg.output(concat, output_path, c='copy')  # Use copy for both audio and video
+            ffmpeg.run(concat, overwrite_output=True, capture_stdout=True, capture_stderr=True)
+
+            total_duration = sum(segment.duration for segment in segments)
+            print(f"Highlight reel created successfully!")
+            print(f"Output: {output_path}")
+            print(f"Total duration: {timedelta(seconds=total_duration)}")
+
+            return output_path
+
+        except ffmpeg.Error as e:
+            print('stdout:', e.stdout.decode('utf8'))
+            print('stderr:', e.stderr.decode('utf8'))
+            raise RuntimeError(f"Error creating highlight reel: {str(e)}")
