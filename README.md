@@ -30,6 +30,16 @@ A comprehensive Python toolkit for creating blog content, including tools for ex
 
 ## Usage
 
+### Overview (from Charlie)
+1. PyCharm: Run Whisper to get transcript with timestamps 
+2. Claude: Upload the transcript and the Granola notes to Claude project, Run the context analysis prompt 
+3. Claude: Run the blog post prompt → Save as Word doc (cmd shift v, no format)
+4. Claude: Run the social media prompt 
+5. Pycharm: Run the corrected blogpost processor UI → UI pops up, Upload the meeting video & the blog post → Run (will save html and screenshots/clips as folder on my local)
+6. Add clips to YouTube 
+7. Copy & paste into Medium; Manually add screenshots and clips (embed YouTube link)
+8. Copy & paste social media into Buffer
+
 ### Processing Blog Content
 
 ```python
