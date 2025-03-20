@@ -1,140 +1,97 @@
-# Blog Content Creator Tools
+# Blog Media Processor
 
-A comprehensive Python toolkit for creating blog content, including tools for extracting video clips and screenshots to enhance your blog posts, and processing blog content from various formats.
+A Python tool for processing blog posts with media markers to automatically extract video clips and screenshots from a source video.
 
 ## Features
 
-- **Blog Processing**: Convert and process blog content from various formats (like Word documents)
-- **HTML Generation**: Generate clean HTML output for your blog posts
-- **Media Extraction**: Extract and process media from your blog content
-- **Video Clip Extraction**: Extract segments from videos to include in your blog posts
-- **Screenshot Extraction**: Capture specific moments from videos as images
+- Supports both Word documents (.docx) and text files (.txt)
+- Extracts video clips with specified duration
+- Captures screenshots at specific timestamps
+- Configurable media alignment and captions
+- Detailed logging and error reporting
 
-## Installation
+## How it works
+- See "Directory_ExplanationOfFiles" for full explanation of the different files and how they fit together, for the blog processor to work.
 
-1. Clone this repository
-2. Create a virtual environment: `python -m venv venv`
-3. Activate the virtual environment:
-   - Windows: `venv\Scripts\activate`
-   - Unix/MacOS: `source venv/bin/activate`
-4. Install dependencies: `pip install -r requirements.txt`
+## Charlie notes on usage 
+
+Prior to this: 
+1. Run the Whisper project to get the transscript with timestamps. 
+2. Add the Granola notes and the transcript to the Claude project, and ask it to run the analysis prompt first, then the blog one. Edit if needed. 
+3. Copy with no formatting (cmd shift v) to GDocs, and save as .docx
+4. Create a Medium placeholder blog post, to grab the URL. 
+5. Ask Claude to run the social media prompt, and then save the outputs to Drive.
+
+To run the blog post processor:
+
+1. [first-time setup only] Create and activate a virtual environment, install the dependencies, and install the package in development mode:
+```bash
+python -m venv .venv
+source .venv/bin/activate  # On macOS
+pip install -r requirements.txt
+pip install -e .
+```
+
+2 Run the processor:
+```bash
+python run_processor.py
+```
+
+3. A UI window will pop up where you can:
+   - Select your blog text file (with media markers)
+   - Select your meeting video file
+   - Click "Process Blog" to start
+
+4. The processor will:
+   - Extract screenshots and video clips based on the markers
+   - Generate an HTML file with all content and media
+   - Save everything to the `processed_blogs` folder
+
+5. After processing:
+   - Check the outputs in the `processed_blogs` folder
+   - Once you've verified everything, you can move the outputs to Drive
+   - Delete the contents of `processed_blogs` to keep the folder clean for next time
+
+## Media Markers
+
+The processor recognizes two types of media markers in your blog document:
+
+1. **Video Clips**:
+```
+[CLIP timestamp="1:30" duration="5" align="center"]Optional caption text[/CLIP]
+```
+
+2. **Screenshots**:
+```
+[SCREENSHOT timestamp="2:45" align="center"]Optional caption text[/SCREENSHOT]
+```
+
+Timestamps can be specified in the following formats:
+- `MM:SS` (e.g., "1:30")
+- `HH:MM:SS` (e.g., "00:01:30")
+- Seconds (e.g., "90" or "90.5")
+
+## Error Handling
+
+The processor includes comprehensive error handling and logging:
+- Invalid timestamps or durations
+- Missing or inaccessible files
+- Media extraction failures
+- Duplicate timestamps
+
+All errors and warnings are logged to the console with appropriate context.
 
 ## Requirements
 
-- Python 3.7+
-- FFmpeg (for video processing)
-- OpenCV
-- Streamlit (for web interface)
-- python-docx (for Word document handling)
-- Other dependencies listed in `requirements.txt`
-
-## Usage
-
-### Overview (from Charlie)
-1. PyCharm: Run Whisper to get transcript with timestamps 
-2. Claude: Upload the transcript and the Granola notes to Claude project, Run the context analysis prompt 
-3. Claude: Run the blog post prompt → Save as Word doc (cmd shift v, no format)
-4. Claude: Run the social media prompt 
-5. Pycharm: Run the corrected blogpost processor UI → UI pops up, Upload the meeting video & the blog post → Run (will save html and screenshots/clips as folder on my local)
-6. Add clips to YouTube 
-7. Copy & paste into Medium; Manually add screenshots and clips (embed YouTube link)
-8. Copy & paste social media into Buffer
-
-### Processing Blog Content
-
-```python
-from blog_processor import blog_processor
-
-# Process a blog post from a Word document
-blog_processor.process_blog("path/to/document.docx", "output_directory")
-```
-
-### Converting Word Documents to HTML
-
-```python
-from blog_processor import docx_reader
-
-# Convert a Word document to HTML
-html_content = docx_reader.convert_docx_to_html("path/to/document.docx")
-```
-
-### Generating HTML Content
-
-```python
-from blog_processor import html_generator
-
-# Generate HTML content with proper formatting
-formatted_html = html_generator.generate_formatted_html(content, title)
-```
-
-### Extracting Media from Blog Content
-
-```python
-from blog_processor import media_extractor
-
-# Extract and process media elements
-media_extractor.process_media_elements(html_content, output_dir)
-```
-
-### Extracting Screenshots from Videos
-
-```python
-from src.screenshot_extractor import extract_screenshots_at_times
-
-video_path = "path/to/video.mp4"
-output_dir = "screenshots"
-timestamps = [10, 30, 60]  # Screenshots at 10s, 30s, and 60s
-
-extract_screenshots_at_times(video_path, output_dir, timestamps)
-```
-
-### Extracting Video Clips
-
-```python
-from src.video_clipper import extract_video_clip
-
-video_path = "path/to/video.mp4"
-output_dir = "clips"
-start_time = 90  # Start at 1 minute 30 seconds
-duration = 30    # 30 second clip
-
-extract_video_clip(video_path, output_dir, start_time, duration)
-```
-
-## Project Structure
-
-```
-blog-content-creator/
-├── blog_processor/
-│   ├── __init__.py
-│   ├── blog_processor.py    # Main blog processing functionality
-│   ├── docx_reader.py       # Word document parsing
-│   ├── html_generator.py    # HTML content generation
-│   └── media_extractor.py   # Extract media from blog content
-├── src/
-│   ├── __init__.py
-│   ├── video_clipper.py     # Video clip extraction functionality
-│   ├── screenshot_extractor.py # Screenshot extraction functionality
-│   └── utils.py             # Shared utility functions
-├── examples/
-│   ├── example.py           # Example of screenshot extraction
-│   └── clip_Example.py      # Example of video clip extraction
-├── requirements.txt         # Project dependencies
-└── README.md                # This documentation
-```
-
-## Web Interface
-
-This project includes a Streamlit web interface for easy use:
-
-```bash
-streamlit run app.py
-```
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+- Python 3.7 or higher
+- PyQt6 (for the UI)
+- python-docx (for Word document processing)
+- moviepy (for video processing)
+- imageio (for image handling)
+- OpenCV (for video processing)
 
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+

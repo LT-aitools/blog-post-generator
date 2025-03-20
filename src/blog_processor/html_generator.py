@@ -123,15 +123,19 @@ class HTMLGenerator:
         print(f"WARNING: No {media_type} file found for timestamp {timestamp} ({formatted_time})")
         return None
 
-    def _convert_markdown_headers(self, text):
+    def _convert_markdown_headers(self, text: str) -> str:
         """Convert markdown headers to HTML."""
-        # Process headers from h6 to h1 (in that order to avoid conflicts)
-        text = re.sub(r'^\s*######\s+(.+)$', r'<h6>\1</h6>', text, flags=re.MULTILINE)
-        text = re.sub(r'^\s*#####\s+(.+)$', r'<h5>\1</h5>', text, flags=re.MULTILINE)
-        text = re.sub(r'^\s*####\s+(.+)$', r'<h4>\1</h4>', text, flags=re.MULTILINE)
-        text = re.sub(r'^\s*###\s+(.+)$', r'<h3>\1</h3>', text, flags=re.MULTILINE)
-        text = re.sub(r'^\s*##\s+(.+)$', r'<h2>\1</h2>', text, flags=re.MULTILINE)
-        text = re.sub(r'^\s*#\s+(.+)$', r'<h1>\1</h1>', text, flags=re.MULTILINE)
+        # Process headers from H6 to H1
+        for level in range(6, 0, -1):
+            # Match headers with optional spaces after the #
+            pattern = f'{"#" * level}\\s+(.+?)$'
+            replacement = f'<h{level}>\\1</h{level}>'
+            text = re.sub(pattern, replacement, text, flags=re.MULTILINE)
+
+        # Remove any paragraph tags that might have been added around headers
+        text = re.sub(r'<p>\s*<(h[1-6])>', r'<\1>', text)
+        text = re.sub(r'</(h[1-6])>\s*</p>', r'</\1>', text)
+
         return text
 
     def _process_lists(self, text):
@@ -303,6 +307,9 @@ class HTMLGenerator:
         # Handle escaped list numbers (convert \1. to 1.)
         blog_text = re.sub(r'\\(\d+)\.\s+(.+?)$', r'\1. \2', blog_text, flags=re.MULTILINE)
 
+        # Process markdown headers first
+        blog_text = self._convert_markdown_headers(blog_text)
+
         # Create a copy of the blog text that we'll modify
         html_content = blog_text
 
@@ -399,8 +406,7 @@ class HTMLGenerator:
                     html_content = html_content.replace(marker_text, html_element)
                     print(f"  Replaced unprocessed marker with image: {image_path}")
 
-        # Process markdown headers and lists
-        html_content = self._convert_markdown_headers(html_content)
+        # Process lists
         html_content = self._process_lists(html_content)
 
         # First, normalize line endings

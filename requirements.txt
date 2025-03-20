@@ -4,11 +4,11 @@ opencv-python-headless  # Headless version for servers without GUI
 ffmpeg-python  # For video processing
 moviepy>=1.0.3  # Additional video editing capabilities
 
-# Web interface
-streamlit>=1.23.0  # For web UI
+# UI
+PyQt6>=6.8.0  # For desktop UI
 
 # Document processing
-python-docx  # For Word document handling
+python-docx>=0.8.11  # For Word document handling
 
 # Testing
 pytest>=7.4.0
@@ -16,7 +16,5 @@ pytest>=7.4.0
 # Optional but recommended
 numpy>=1.22.0  # Required by OpenCV
 Pillow>=9.0.0  # For image processing
-opencv-python-headless>=4.8.0
-# (instead of opencv-python)
-
 markdown>=3.4.1
+imageio>=2.31.1

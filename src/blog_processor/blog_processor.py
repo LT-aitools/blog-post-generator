@@ -54,9 +54,8 @@ class BlogProcessor:
 
     def _create_output_dirs(self, video_name: str) -> tuple[str, str]:
         """Create output directories for the blog post."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        blog_dir = os.path.join(self.output_base_dir, f"{video_name}_{timestamp}")
-        media_dir = os.path.join(blog_dir, video_name)
+        blog_dir = self.output_base_dir
+        media_dir = os.path.join(blog_dir, "media")
 
         os.makedirs(blog_dir, exist_ok=True)
         os.makedirs(media_dir, exist_ok=True)
