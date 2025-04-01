@@ -1,6 +1,16 @@
 # Directory Structure and File Explanations
 
-## Root Directory Files
+## How the files fit together
+The blog processor works by:
+1. `run_processor.py` launches the UI
+2. User selects input files through the UI
+3. `blog_processor.py` coordinates the process:
+   - `docx_reader.py` reads the blog text
+   - `media_extractor.py` extracts media using `screenshot_extractor.py` and `videoclipper.py`
+   - `html_generator.py` creates the final HTML output
+4. All outputs are saved to `processed_blogs/` 
+
+# Root Directory Files
 - `run_processor.py` - Main entry point that launches the PyQt6 UI for the blog processor
 - `requirements.txt` - Lists all Python package dependencies needed to run the project
 - `README.md` - Project documentation and usage instructions
@@ -23,6 +33,10 @@
 - `utils.py` - Common utility functions used across the project
 - `__init__.py` - Makes the src directory a proper Python package
 
+### Highlight Reel Maker Module (`src/highlight_reel_maker/`)
+- `highlight_reel_processor.py` - Creates highlight reels by combining video clips with title cards and descriptions
+- `__init__.py` - Makes the highlight_reel_maker directory a proper Python package
+
 ## UI Code (`examples/`)
 - `corrected_blog_processor_ui.py` - PyQt6-based user interface for file selection and processing
 - `.DS_Store` - macOS system file (can be ignored)
@@ -33,19 +47,10 @@
   - Extracted screenshots
   - Video clips
   - Media files
+- `highlight_reels/` - Directory where generated highlight reel videos are saved
 
 ## Development Files
 - `.venv/` - Python virtual environment containing project dependencies
 - `.git/` - Git version control repository
 - `.idea/` - PyCharm IDE settings (if using PyCharm)
 - `tests/` - Test files for development and verification
-
-## File Dependencies
-The blog processor works by:
-1. `run_processor.py` launches the UI
-2. User selects input files through the UI
-3. `blog_processor.py` coordinates the process:
-   - `docx_reader.py` reads the blog text
-   - `media_extractor.py` extracts media using `screenshot_extractor.py` and `videoclipper.py`
-   - `html_generator.py` creates the final HTML output
-4. All outputs are saved to `processed_blogs/` 

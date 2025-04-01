@@ -9,6 +9,7 @@ PyQt6>=6.8.0  # For desktop UI
 
 # Document processing
 python-docx>=0.8.11  # For Word document handling
+PyPDF2>=3.0.0  # For PDF processing
 
 # Testing
 pytest>=7.4.0
